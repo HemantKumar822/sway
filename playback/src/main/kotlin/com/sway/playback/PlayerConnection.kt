@@ -205,15 +205,13 @@ class PlayerConnection private constructor(
     // --- commands -------------------------------------------------------------
 
     /**
-     * Set the queue snapshot — wired to [SwayPlaybackService.onSetMediaItems] path
-     * in later story 4.4 (single upfront resolve). For 4.2 this establishes the
-     * [PlayerUiState.currentItem] mapping and forwards placeholder media items to
-     * the controller/player when available.
-     *
-     * Items are forwarded as [MediaItem]s whose URIs are either the real stream
-     * URL (start item, resolved later) or [PendingUri] placeholders for the rest
-     * (AD-6 rule 6). In 4.2 placeholders are used uniformly; 4.4 introduces
-     * the single-resolve optimization.
+     * Set the queue snapshot — every entry is forwarded to the session as a
+     * [MediaItem] whose URI is the uniform [PendingUri] placeholder
+     * (AD-6 rule 6); story 4.4 resolves ONLY the start item by intercepting the
+     * command in `SwayPlaybackService`'s `onSetMediaItems` before items land on
+     * the player (FR-12 up-front budget = 1). Directly-bound test players skip
+     * that session interception, so items stay placeholders here — the
+     * zero-resolved-URLs property of this facade is structurally true.
      */
     fun setQueue(snapshot: QueueSnapshot, startIndex: Int) {
         require(startIndex in 0 until snapshot.size || snapshot.isEmpty && startIndex == 0) {
@@ -262,8 +260,8 @@ class PlayerConnection private constructor(
         }
         try {
             val items = snapshot.items.map { qi ->
-                // 4.2 uniform placeholder: all items as pending URIs.
-                // 4.4 will replace start item with resolved URL.
+                // Uniform placeholder mapping (AD-6 rule 6); 4.4's session-side
+                // interception swaps ONLY the start URI before player ingestion.
                 MediaItem.Builder()
                     .setMediaId(qi.id.value)
                     .setUri(PendingUri.buildString(qi.id))

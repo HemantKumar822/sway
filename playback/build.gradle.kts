@@ -41,4 +41,10 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+
+    // Instrumented FR-8 timing harness placeholder (story 4.4) — mirrors the
+    // :catalog LiveSmoke precedent: tag-gated @Ignore, never runs without a device.
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.core)
 }

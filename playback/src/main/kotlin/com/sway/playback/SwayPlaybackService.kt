@@ -3,18 +3,40 @@ package com.sway.playback
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
+import com.sway.core.model.StreamResolver
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
- * Story 4.1 skeleton — the ONLY player owner (AD-6 rule 1, AR-5).
+ * Story 4.1 skeleton + story 4.4 lazy-resolution wiring — the ONLY player owner
+ * (AD-6 rule 1, AR-5).
  *
  * Owns ExoPlayer built in [onCreate] with music [AudioAttributes], focus +
  * becoming-noisy handling, network wake mode, and exposes a MediaLibrarySession
  * for controller attachment. Idle self-stop is armed: service calls `stopSelf`
  * when the session/player is released and on idle transitions (NFR-10).
+ *
+ * Story 4.4: when a [StreamResolver] is present ([streamResolverForTest] seam —
+ * production graph wiring arrives in a later epic), [onCreate] builds a
+ * [JitResolveEngine] and [LibraryCallback.onSetMediaItems] resolves ONLY the
+ * start queue item before items land on the player (FR-12 budget = 1); all
+ * just-in-time transitions/prefetch run inside the engine via its own player
+ * listener, so auto-advance needs zero controllers bound. Resolve failures are
+ * hoisted as typed values on [lastFailure] — never crashes.
  */
 class SwayPlaybackService : MediaLibraryService() {
 
@@ -26,6 +48,24 @@ class SwayPlaybackService : MediaLibraryService() {
     private var handleAudioFocusEnabled: Boolean = false
     private var handleAudioBecomingNoisyEnabled: Boolean = false
     private var wakeModeApplied: Int = C.WAKE_MODE_NONE
+
+    // --- story 4.4: lazy resolution -------------------------------------------
+
+    /**
+     * Resolver injection seam: set BETWEEN Robolectric construction and
+     * `.create()` (or by the future DI graph) BEFORE the service starts; null
+     * keeps the pre-4.4 behavior (uniform placeholders, default session
+     * routing). Kept Hilt-free per module boundary decision.
+     */
+    internal var streamResolverForTest: StreamResolver? = null
+
+    private var resolveEngine: JitResolveEngine? = null
+    private var engineScope: CoroutineScope? = null
+
+    private val _lastFailure = MutableStateFlow<FailedTrack?>(null)
+
+    /** Latest typed resolution failure (start or transition) — hoisted for glue. */
+    internal val lastFailure: StateFlow<FailedTrack?> = _lastFailure.asStateFlow()
 
     // --- Test-visible accessors (internal) ---
 
@@ -40,6 +80,8 @@ class SwayPlaybackService : MediaLibraryService() {
     internal fun getWakeModeForTest(): Int = wakeModeApplied
 
     internal fun getAudioAttributesForTest(): AudioAttributes? = exoPlayer?.audioAttributes
+
+    internal fun getEngineForTest(): JitResolveEngine? = resolveEngine
 
     override fun onCreate() {
         super.onCreate()
@@ -73,6 +115,18 @@ class SwayPlaybackService : MediaLibraryService() {
         })
 
         exoPlayer = player
+
+        streamResolverForTest?.let { resolver ->
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+            engineScope = scope
+            resolveEngine = JitResolveEngine(
+                player = player,
+                resolver = resolver,
+                scope = scope,
+                onFailure = { _lastFailure.value = it },
+            )
+        }
+
         librarySession = MediaLibraryService.MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setId("sway-playback-${System.identityHashCode(this)}-${System.nanoTime()}")
             .build()
@@ -82,6 +136,10 @@ class SwayPlaybackService : MediaLibraryService() {
         librarySession
 
     override fun onDestroy() {
+        resolveEngine?.release()
+        resolveEngine = null
+        engineScope?.cancel()
+        engineScope = null
         librarySession?.release()
         librarySession = null
         exoPlayer?.release()
@@ -97,5 +155,41 @@ class SwayPlaybackService : MediaLibraryService() {
         super.onTaskRemoved(rootIntent)
     }
 
-    private class LibraryCallback : MediaLibraryService.MediaLibrarySession.Callback
+    /**
+     * Session callback with story-4.4 first-resolve interception: a controller's
+     * `setMediaItems(placeholders, startIndex)` arrives here and returns the
+     * list with ONLY the start item's URI swapped for its resolved stream URL
+     * (FR-12 up-front budget = 1). On start-resolve failure the ORIGINAL
+     * placeholder list is returned — the queue still loads, the typed failure
+     * surfaces on [lastFailure]/facade slot, nothing throws. Without an engine
+     * (no resolver injected) the default routing applies unchanged.
+     */
+    private inner class LibraryCallback : MediaLibraryService.MediaLibrarySession.Callback {
+
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val engine = resolveEngine ?: return super.onSetMediaItems(
+                mediaSession, controller, mediaItems, startIndex, startPositionMs,
+            )
+            val scope = engineScope
+            if (scope == null || !scope.isActive) return super.onSetMediaItems(
+                mediaSession, controller, mediaItems, startIndex, startPositionMs,
+            )
+            val result = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            scope.launch {
+                try {
+                    val swapped = engine.resolveStartSwap(mediaItems, startIndex)
+                    result.set(MediaSession.MediaItemsWithStartPosition(swapped, startIndex, startPositionMs))
+                } catch (t: Throwable) {
+                    result.setException(t)
+                }
+            }
+            return result
+        }
+    }
 }
