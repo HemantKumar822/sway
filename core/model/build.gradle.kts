@@ -9,6 +9,8 @@ plugins {
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+        // Suppress copy-visibility warning for private-constructor data classes; 2.5 will require explicit.
+        freeCompilerArgs.add("-Xconsistent-data-class-copy-visibility")
     }
 }
 
