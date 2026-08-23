@@ -1,6 +1,7 @@
 package com.sway.playback
 
 import com.sway.core.model.QueueItem
+import com.sway.core.model.RepeatMode
 import com.sway.core.model.SwayError
 
 /**
@@ -39,22 +40,6 @@ data class PlayerUiState(
         /** Idle/empty state — no playback session. */
         val Idle = PlayerUiState()
     }
-}
-
-/**
- * Playback-mode vocabulary (story 7.1, FR-11): facade-level mirror of media3's
- * repeat modes. Mapping to/from media3 ints stays private inside
- * [PlayerConnection] so UI code never touches transport constants.
- */
-enum class RepeatMode {
-    /** No looping: end of queue ends playback. */
-    OFF,
-
-    /** Loop the whole queue: past the last item wraps to the first. */
-    ALL,
-
-    /** Replay the current item indefinitely; prefetch is disabled (4.4 guard). */
-    ONE,
 }
 
 /**

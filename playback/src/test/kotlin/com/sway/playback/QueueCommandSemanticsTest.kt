@@ -1,4 +1,4 @@
-package com.sway.playback
+﻿package com.sway.playback
 
 import android.content.Context
 import android.os.Looper
@@ -12,6 +12,7 @@ import com.sway.core.model.QueueSnapshot
 import com.sway.core.model.Quality
 import com.sway.core.model.ResolvedAudio
 import com.sway.core.model.Song
+import com.sway.core.model.RepeatMode
 import com.sway.core.model.SwayResult
 import com.sway.core.model.fake.FakeStreamResolver
 import kotlinx.coroutines.CoroutineScope
@@ -36,7 +37,7 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * Story 7.1 — queue command semantics (FR-22/23/24 engine substrate, A-4,
+ * Story 7.1 â€” queue command semantics (FR-22/23/24 engine substrate, A-4,
  * FR-11 toggle semantics complete here on the engine side; E12 completes the
  * surfaces).
  *
@@ -47,7 +48,7 @@ import java.io.FileOutputStream
  *    resolve for item k, every other item still riding placeholders;
  *  - AC2/AC3 remove: removing-playing advances without silence (next JIT-
  *    resolved); removing-upcoming never disturbs current (zero resolves);
- *  - AC4–AC7 play-next / add-to-queue / clear / drag-reorder with live ==
+ *  - AC4â€“AC7 play-next / add-to-queue / clear / drag-reorder with live ==
  *    snapshot parity and session persistence;
  *  - AC8/AC9 shuffle: current preserved in place with ZERO extra resolves,
  *    remainder deterministic per session seed (cross-session same-seed
@@ -56,7 +57,7 @@ import java.io.FileOutputStream
  *    timeline laws (Player.java: ALL "looping at the ends"; ONE "repeats the
  *    currently playing MediaItem infinitely during ongoing playback");
  *  - AC11 repeat-one arms the engine's 4.4 prefetch guard via self-subscribed
- *    repeat-mode events — prefetch goes silent while armed;
+ *    repeat-mode events â€” prefetch goes silent while armed;
  *  - AC12 A-4 boundary: >=5000 ms restarts, <5000 ms jumps back (pure table +
  *    behavioral through the facade).
  */
@@ -97,7 +98,7 @@ class QueueCommandSemanticsTest {
     }
 
     // ---------------------------------------------------------------------
-    // AC1: jump(k) — <=2 s switch, exactly one resolve, others placeholder
+    // AC1: jump(k) â€” <=2 s switch, exactly one resolve, others placeholder
     // ---------------------------------------------------------------------
 
     @Test
@@ -385,7 +386,7 @@ class QueueCommandSemanticsTest {
         assertEquals(Player.REPEAT_MODE_ONE, player().repeatMode)
         assertTrue("Engine must arm its repeat-one guard from the player event", engine.isRepeatOneGuardArmedForTest())
 
-        // The guard law: while armed, prefetch attempts are short-circuited —
+        // The guard law: while armed, prefetch attempts are short-circuited â€”
         // driven through the exact entry point READY/BUFFERING events use.
         repeat(5) { engine.maybePrefetchNext() }
         idle()

@@ -11,6 +11,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.sway.core.model.QueueItem
 import com.sway.core.model.QueueSnapshot
+import com.sway.core.model.RepeatMode
 import com.sway.core.model.Song
 import com.sway.core.model.SwayError
 import com.sway.core.model.SourceId
@@ -22,8 +23,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executor
 
@@ -85,6 +88,13 @@ class PlayerConnection private constructor(
 
     /** Linear (pre-shuffle) item ids remembered while shuffle is ON. */
     private var preShuffleIds: List<SourceId>? = null
+
+    /**
+     * Story 7.2: optional persistence hook (FR-11 persistence clause). When
+     * attached, every mode change writes through and the persisted shuffle
+     * flag restores into the facade mirror on attach.
+     */
+    private var settings: com.sway.core.data.SettingsRepository? = null
 
     // --- controller / player handle -----------------------------------------
 
@@ -283,6 +293,10 @@ class PlayerConnection private constructor(
             val items = snapshot.items.map { mediaItemFor(it) }
             p.setMediaItems(items, idx, 0L)
             p.prepare()
+            // Story 7.2: a restored/toggled-ON shuffle reorders the freshly
+            // built queue around its start item (zero extra resolves; only
+            // ORDER moves after ingestion).
+            applyShuffleIfArmed()
         } catch (_: Exception) {
             // Under Robolectric some player ops may throw — ignore for unit proof
         }
@@ -473,9 +487,11 @@ class PlayerConnection private constructor(
      */
     fun setShuffleEnabled(enabled: Boolean) {
         val snap = queueSnapshot
-        if (snap.isEmpty || enabled == shuffleEnabledInternal) {
+        val changed = enabled != shuffleEnabledInternal
+        if (snap.isEmpty || !changed) {
             shuffleEnabledInternal = enabled
             _uiState.value = _uiState.value.copy(shuffleEnabled = enabled)
+            persistShuffleIfAttached(enabled)
             return
         }
         val cur = currentPlayerIndexCoerced(snap)
@@ -501,10 +517,38 @@ class PlayerConnection private constructor(
         }
         shuffleEnabledInternal = enabled
         _uiState.value = _uiState.value.copy(shuffleEnabled = enabled)
+        persistShuffleIfAttached(enabled)
+    }
+
+    /** Story 7.2: fire-and-forget write-through; DataStore serializes (last-write-wins). */
+    private fun persistShuffleIfAttached(enabled: Boolean) {
+        settings?.let { repo ->
+            scope.launch {
+                try {
+                    repo.setShuffleEnabled(enabled)
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     /** Current shuffle flag (facade-owned truth). */
     fun isShuffleEnabled(): Boolean = shuffleEnabledInternal
+
+    /**
+     * Story 7.2: when the flag is armed (restored from settings or toggled
+     * before a queue existed), every queue build lands shuffled around its
+     * start/current item.
+     */
+    private fun applyShuffleIfArmed() {
+        if (!shuffleEnabledInternal || queueSnapshot.isEmpty) return
+        val cur = currentPlayerIndexCoerced(queueSnapshot)
+        val seed = sessionSeed
+            ?: (shuffleSeedOverride ?: System.nanoTime()).also { sessionSeed = it }
+        val target = QueueBuilder.reshufflePreservingCurrent(queueSnapshot.items, cur, seed)
+        materializeAroundCurrent(target.map { it.id.value }, cur)
+        queueSnapshot = QueueSnapshot.of(target)
+    }
 
     /**
      * FR-11 cycling OFF -> ALL -> ONE -> OFF onto the player-NATIVE repeat
@@ -524,11 +568,39 @@ class PlayerConnection private constructor(
         } catch (_: Exception) {
         }
         _uiState.value = _uiState.value.copy(repeatMode = next)
+        // Story 7.2: write-through persistence (last-write-wins).
+        settings?.let { repo ->
+            scope.launch {
+                try {
+                    repo.setRepeatMode(next)
+                } catch (_: Exception) {
+                }
+            }
+        }
         return next
     }
 
     /** Session-local upcoming-order view (E12 queue sheet substrate). */
     fun currentQueue(): List<QueueItem> = queueSnapshot.items.toList()
+
+    /**
+     * Story 7.2: attach the settings repository. Restores the persisted
+     * shuffle flag into the facade mirror asynchronously (AD-10 — first()
+     * collection, never a synchronous read); repeat mode is restored by the
+     * SERVICE onto the player before any queue build and mirrors from there.
+     */
+    internal fun attachSettings(repo: com.sway.core.data.SettingsRepository) {
+        settings = repo
+        scope.launch {
+            try {
+                val restored = repo.shuffleEnabled.first()
+                if (restored != shuffleEnabledInternal) {
+                    setShuffleEnabled(restored)
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
 
     /**
      * Test/session seam: adopt an externally-loaded queue — the engine-started

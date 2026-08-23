@@ -8,6 +8,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.sway.core.model.QueueItem
 import com.sway.core.model.QueueSnapshot
+import com.sway.core.model.RepeatMode
 import com.sway.core.model.Song
 import com.sway.core.model.SourceId
 import com.sway.core.model.SwayError

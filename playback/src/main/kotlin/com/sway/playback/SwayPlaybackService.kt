@@ -10,11 +10,14 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
+import com.sway.core.data.SettingsRepository
 import com.sway.core.model.StreamResolver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -76,6 +79,20 @@ class SwayPlaybackService : MediaLibraryService() {
 
     private var resolveEngine: JitResolveEngine? = null
     private var engineScope: CoroutineScope? = null
+
+    // --- story 7.2: mode persistence (FR-11 persistence clause) --------------
+
+    /**
+     * Settings injection seam — mirrors [streamResolverForTest]: production
+     * graph wiring arrives with the app-assembly epic; tests inject here.
+     * When present, onCreate launches an ASYNC restore (AD-10: never a
+     * synchronous read) that applies the persisted repeat mode onto the
+     * player BEFORE the first queue build lands.
+     */
+    internal var settingsForTest: SettingsRepository? = null
+
+    private var serviceScope: CoroutineScope? = null
+    private var modeRestoreJob: Job? = null
 
     private val _lastFailure = MutableStateFlow<FailedTrack?>(null)
 
@@ -159,12 +176,37 @@ class SwayPlaybackService : MediaLibraryService() {
         // thin — branded channel id/name + stable notification id only; all
         // action/metadata/dismissal behavior stays stock (A-10).
         setMediaNotificationProvider(SwayNotificationProvider(this))
+
+        // Story 7.2 (FR-11): async mode restore BEFORE any queue can be built
+        // (session commands arrive later on this same looper, so the restored
+        // repeat mode is already on the player when the first queue lands;
+        // shuffle is restored facade-side where the timeline order lives).
+        settingsForTest?.let { repo ->
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+            serviceScope = scope
+            val playerRef = player
+            modeRestoreJob = scope.launch {
+                val restored = repo.repeatMode.first()
+                try {
+                    playerRef.repeatMode = when (restored) {
+                        com.sway.core.model.RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+                        com.sway.core.model.RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+                        com.sway.core.model.RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibraryService.MediaLibrarySession? =
         librarySession
 
     override fun onDestroy() {
+        modeRestoreJob?.cancel()
+        modeRestoreJob = null
+        serviceScope?.cancel()
+        serviceScope = null
         resolveEngine?.release()
         resolveEngine = null
         engineScope?.cancel()
