@@ -3,6 +3,9 @@
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- 6.1 (FR-17 substrate): notification visibility posture on API 33+.
+         Runtime rationale flow + denied-degradation note are story 6.3 scope. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".SwayApplication"

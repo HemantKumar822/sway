@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Story 6.1 (FR-17): notification channel display name owned by :playback —
+     fed to SwayNotificationProvider's DefaultMediaNotificationProvider builder. -->
+<resources>
+    <string name="sway_notification_channel_name" translatable="false">Playback</string>
+</resources>

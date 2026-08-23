@@ -2,13 +2,16 @@ package com.sway.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.sway.core.model.QueueItem
 import com.sway.core.model.QueueSnapshot
+import com.sway.core.model.Song
 import com.sway.core.model.SwayError
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -262,9 +265,14 @@ class PlayerConnection private constructor(
             val items = snapshot.items.map { qi ->
                 // Uniform placeholder mapping (AD-6 rule 6); 4.4's session-side
                 // interception swaps ONLY the start URI before player ingestion.
+                // Story 6.1 (FR-18): MediaMetadata stamped from the Song here —
+                // the SINGLE stamping point so notification + lock screen mirror
+                // PlayerUiState.currentItem.song EXACTLY (title/artist/artwork/
+                // duration); JIT resolve swaps ride buildUpon() and preserve it.
                 MediaItem.Builder()
                     .setMediaId(qi.id.value)
                     .setUri(PendingUri.buildString(qi.id))
+                    .setMediaMetadata(qi.song.toMediaMetadata())
                     .build()
             }
             p.setMediaItems(items, idx, 0L)
@@ -524,3 +532,19 @@ class PlayerConnection private constructor(
         }
     }
 }
+
+/**
+ * Song -> media3 [MediaMetadata] mirror law (story 6.1, FR-18 exactness): title,
+ * artist, canonical artwork URI and duration are copied verbatim from the queue
+ * truth so every session surface (media notification, lock screen, future
+ * browsers) renders exactly what [PlayerUiState.currentItem] holds. Absent
+ * artist/artwork map to nulls. Top-level internal: the SINGLE stamping point
+ * shared by the facade mapping and the engine's placeholder ingestion.
+ */
+internal fun Song.toMediaMetadata(): MediaMetadata =
+    MediaMetadata.Builder()
+        .setTitle(title)
+        .setArtist(artistName)
+        .setArtworkUri(artwork?.canonicalUrl?.let { Uri.parse(it) })
+        .setDurationMs(duration.millis)
+        .build()

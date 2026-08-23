@@ -46,6 +46,12 @@ import kotlinx.coroutines.launch
  * Story 5.4 (FR-14/AD-7 layer 3): the engine's stalled-playback watchdog is
  * ARMED here ([JitResolveEngine.startWatchdog]) on the engine scope — its
  * ticker lives and dies with this service (no app-wide ticking broadcast).
+ *
+ * Story 6.1 (FR-16/17/18): media notifications ride Media3 defaults wrapped
+ * thin ([SwayNotificationProvider] — branded channel, stable id, stock
+ * actions/dismissal semantics per A-10). onDestroy purges our notification id
+ * defensively so no zombie notification can outlive the service through any
+ * teardown path (NFR-10).
  */
 class SwayPlaybackService : MediaLibraryService() {
 
@@ -148,6 +154,11 @@ class SwayPlaybackService : MediaLibraryService() {
         librarySession = MediaLibraryService.MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setId("sway-playback-${System.identityHashCode(this)}-${System.nanoTime()}")
             .build()
+
+        // Story 6.1 (FR-17): media notifications via Media3 defaults wrapped
+        // thin — branded channel id/name + stable notification id only; all
+        // action/metadata/dismissal behavior stays stock (A-10).
+        setMediaNotificationProvider(SwayNotificationProvider(this))
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibraryService.MediaLibrarySession? =
@@ -163,6 +174,22 @@ class SwayPlaybackService : MediaLibraryService() {
         exoPlayer?.release()
         exoPlayer = null
         // Idle self-stop: ensure no zombie service remains when released.
+        // Story 6.1 (NFR-10): also purge our media notification defensively —
+        // Media3's manager only cancels through its own update paths, which a
+        // stopSelf()/destroy teardown can bypass; cancel by the SAME constant
+        // id the provider posts under so no zombie notification outlives us.
+        try {
+            stopForeground(true)
+        } catch (_: Exception) {
+            // Best-effort: never let notification hygiene crash teardown.
+        }
+        try {
+            (getSystemService(NOTIFICATION_SERVICE) as? android.app.NotificationManager)
+                ?.cancel(SwayNotificationProvider.NOTIFICATION_ID)
+        } catch (_: Exception) {
+            // Best-effort as above.
+        }
+        // 4.1 contract preserved: explicit self-stop on teardown.
         stopSelf()
         super.onDestroy()
     }
