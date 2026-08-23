@@ -207,6 +207,9 @@ internal class JitResolveEngine(
         repeatOneRequested = requested
     }
 
+    /** Test-visible (story 7.1): whether the repeat-one prefetch guard is armed. */
+    internal fun isRepeatOneGuardArmedForTest(): Boolean = repeatOneRequested
+
     // --- up-front path (budget = 1) ---------------------------------------------
 
     /**
@@ -322,6 +325,17 @@ internal class JitResolveEngine(
             maybePrefetchNext()
         }
         if (playbackState == Player.STATE_READY) noteSuccessfulProgress()
+    }
+
+    /**
+     * Story 7.1 (FR-11 repeat-one guard engagement): both layers subscribe to
+     * the same player truth — when the facade (or any session controller)
+     * flips [Player.REPEAT_MODE_ONE], prefetch short-circuits via
+     * [setRepeatOneRequested]; leaving ONE re-enables it. Zero facade->engine
+     * coupling by design.
+     */
+    override fun onRepeatModeChanged(repeatMode: Int) {
+        setRepeatOneRequested(repeatMode == Player.REPEAT_MODE_ONE)
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {

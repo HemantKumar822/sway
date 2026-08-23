@@ -331,8 +331,15 @@ class PlayerConnectionTest {
         conn.previous()
         runCurrent()
 
-        conn.toggleShuffle() // placeholder no-op
-        conn.toggleRepeat()  // placeholder no-op
+        // Story 7.1: real mode commands (were 4.2 placeholders) — no crash on
+        // a live queue; shuffle flag mirrors, repeat cycles OFF->ALL->ONE->OFF.
+        conn.setShuffleEnabled(true)
+        runCurrent()
+        assertTrue(conn.isShuffleEnabled())
+
+        assertEquals(RepeatMode.ALL, conn.cycleRepeatMode())
+        assertEquals(RepeatMode.ONE, conn.cycleRepeatMode())
+        assertEquals(RepeatMode.OFF, conn.cycleRepeatMode())
 
         conn.release()
     }

@@ -13,6 +13,7 @@ import com.sway.core.model.QueueItem
 import com.sway.core.model.QueueSnapshot
 import com.sway.core.model.Song
 import com.sway.core.model.SwayError
+import com.sway.core.model.SourceId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,9 +40,11 @@ import java.util.concurrent.Executor
  * controller lifecycle without leaking — old controller released before
  * new one attached. Call [release] on owner destroy.
  *
- * Commands (4.2 placeholders for later epics are no-ops but present):
- * [setQueue]/[play]/[pause]/[seekTo]/[jumpTo]/[next]/[previous]/
- * [toggleShuffle]/[toggleRepeat] (placeholders; E7 persistence).
+ * Commands (4.2 surface + story 7.1 FR-22/23/24 engine substrate):
+ * [setQueue]/[play]/[pause]/[seekTo]/[jumpTo]/[next]/[previous] plus the
+ * queue-command layer [removeAt]/[playNext]/[addToQueue]/[clearQueue]/
+ * [moveQueueItem]/[setShuffleEnabled]/[cycleRepeatMode]; A-4-aware previous.
+ * Mode persistence lands in 7.2.
  *
  * Threading: construction on any thread; callbacks on main. State
  * updates are synchronous inside [Player.Listener] (no extra dispatch)
@@ -67,6 +70,21 @@ class PlayerConnection private constructor(
     /** Snapshot of current queue and index for currentItem resolution. */
     private var queueSnapshot: QueueSnapshot = QueueSnapshot.Empty
     private var startIndex: Int = 0
+
+    // --- story 7.1: queue-command state (FR-22/23/24 engine substrate) -------
+
+    /** Facade-owned shuffle flag; the timeline is physically reordered, so the
+     * player's native shuffleModeEnabled stays OFF (single order truth). */
+    private var shuffleEnabledInternal: Boolean = false
+
+    /** Session shuffle seed: lazily captured on first enable; test seam overrides. */
+    private var sessionSeed: Long? = null
+
+    /** Test seam: when set, takes precedence over [System.nanoTime] seeding. */
+    internal var shuffleSeedOverride: Long? = null
+
+    /** Linear (pre-shuffle) item ids remembered while shuffle is ON. */
+    private var preShuffleIds: List<SourceId>? = null
 
     // --- controller / player handle -----------------------------------------
 
@@ -262,25 +280,28 @@ class PlayerConnection private constructor(
             return
         }
         try {
-            val items = snapshot.items.map { qi ->
-                // Uniform placeholder mapping (AD-6 rule 6); 4.4's session-side
-                // interception swaps ONLY the start URI before player ingestion.
-                // Story 6.1 (FR-18): MediaMetadata stamped from the Song here —
-                // the SINGLE stamping point so notification + lock screen mirror
-                // PlayerUiState.currentItem.song EXACTLY (title/artist/artwork/
-                // duration); JIT resolve swaps ride buildUpon() and preserve it.
-                MediaItem.Builder()
-                    .setMediaId(qi.id.value)
-                    .setUri(PendingUri.buildString(qi.id))
-                    .setMediaMetadata(qi.song.toMediaMetadata())
-                    .build()
-            }
+            val items = snapshot.items.map { mediaItemFor(it) }
             p.setMediaItems(items, idx, 0L)
             p.prepare()
         } catch (_: Exception) {
             // Under Robolectric some player ops may throw — ignore for unit proof
         }
     }
+
+    /**
+     * Uniform placeholder mapping (AD-6 rule 6); the session-side interception
+     * swaps ONLY a start URI before player ingestion. Story 6.1 (FR-18):
+     * MediaMetadata stamped from the Song — the SINGLE stamping point so
+     * notification + lock screen mirror PlayerUiState.currentItem.song EXACTLY;
+     * story 7.1 queue commands reuse it so inserted/append items carry the
+     * same mirror. JIT resolve swaps ride buildUpon() and preserve it.
+     */
+    private fun mediaItemFor(qi: QueueItem): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(qi.id.value)
+            .setUri(PendingUri.buildString(qi.id))
+            .setMediaMetadata(qi.song.toMediaMetadata())
+            .build()
 
     fun play() {
         player?.play()
@@ -321,34 +342,290 @@ class PlayerConnection private constructor(
         syncFromPlayer()
     }
 
+    /**
+     * FR-10 / A-4 law (story 7.1): >= [JitPolicy.A4_PREVIOUS_RESTART_MS]
+     * played restarts the current track; below it jumps back to the previous
+     * item; no previous item always restarts. The decision is pure policy
+     * ([JitPolicy.previousDecision]); this method only executes the verdict.
+     */
     fun previous() {
         val p = player ?: return
+        val verdict = JitPolicy.previousDecision(
+            positionMs = try {
+                p.currentPosition
+            } catch (_: Exception) {
+                0L
+            },
+            hasPrevious = try {
+                p.hasPreviousMediaItem()
+            } catch (_: Exception) {
+                false
+            },
+        )
         try {
-            if (p.hasPreviousMediaItem()) {
-                p.seekToPreviousMediaItem()
-            } else {
-                p.seekTo(0L)
+            when (verdict) {
+                JitPolicy.PreviousDecision.RESTART_CURRENT -> p.seekTo(0L)
+                JitPolicy.PreviousDecision.GO_BACK -> p.seekToPreviousMediaItem()
             }
         } catch (_: Exception) {
         }
         syncFromPlayer()
     }
 
-    // --- placeholders for E7 (modes persistence) --------------------------------
+    // --- story 7.1: queue commands (FR-22/23/24 engine substrate) -------------
 
-    /** Placeholder — shuffle toggle. No-op until story 7.2. */
-    fun toggleShuffle() {
-        // No-op placeholder (AD-6 rule 5, FR-11). Preserved for command surface completeness.
+    /**
+     * Remove the item at [index]. Removing the PLAYING item auto-advances to
+     * the next one via media3 timeline semantics (transition reason REMOVE,
+     * playback uninterrupted — the engine's transition listener JIT-resolves
+     * the new current, FR-12 budget untouched); removing an upcoming item
+     * never disturbs the current one. Snapshot and timeline mutate together
+     * (one index space law). Out-of-bounds/empty is a no-op.
+     */
+    fun removeAt(index: Int) {
+        val snap = queueSnapshot
+        if (snap.isEmpty || index !in 0 until snap.size) return
+        val items = snap.items.toMutableList().apply { removeAt(index) }
+        queueSnapshot = QueueSnapshot.of(items)
+        try {
+            player?.removeMediaItems(index, index + 1)
+        } catch (_: Exception) {
+        }
+        syncFromPlayer()
     }
 
-    /** Placeholder — repeat toggle. No-op until story 7.2. */
-    fun toggleRepeat() {
-        // No-op placeholder (AD-6 rule 5).
+    /** FR-24: insert [song] directly after the current item ("play next"). */
+    fun playNext(song: Song) = insertItems(listOf(QueueItem.of(song)), afterCurrent = true)
+
+    /** FR-24: append [song] at the queue tail ("add to queue"). */
+    fun addToQueue(song: Song) = insertItems(listOf(QueueItem.of(song)), afterCurrent = false)
+
+    private fun insertItems(newItems: List<QueueItem>, afterCurrent: Boolean) {
+        val snap = queueSnapshot
+        val at = if (snap.isEmpty) {
+            0
+        } else {
+            val cur = currentPlayerIndexCoerced(snap)
+            if (afterCurrent) cur + 1 else snap.size
+        }
+        val items = snap.items.toMutableList().apply { addAll(at, newItems) }
+        queueSnapshot = QueueSnapshot.of(items)
+        try {
+            player?.addMediaItems(at, newItems.map { mediaItemFor(it) })
+        } catch (_: Exception) {
+        }
+        syncFromPlayer()
     }
 
-    // Future mode slots could be:
-    // fun setShuffleEnabled(enabled: Boolean) = toggleShuffle()
-    // fun setRepeatMode(mode: Int) = toggleRepeat()
+    /**
+     * FR-24 "clear": stops honestly (pause intent first so the 4.1 idle
+     * self-stop guard sees user-intent IDLE), empties timeline + snapshot,
+     * resets shuffle state. Repeat mode survives (FR-11 persistence is 7.2's
+     * business; clearing a queue is not a mode reset). Confirmation UX lives
+     * in E12.
+     */
+    fun clearQueue() {
+        pause()
+        try {
+            player?.clearMediaItems()
+        } catch (_: Exception) {
+        }
+        queueSnapshot = QueueSnapshot.Empty
+        shuffleEnabledInternal = false
+        preShuffleIds = null
+        sessionSeed = null
+        _uiState.value = PlayerUiState(
+            isPlaying = false,
+            isBuffering = false,
+            currentItem = null,
+            failedTrack = null,
+            shuffleEnabled = false,
+            repeatMode = _uiState.value.repeatMode,
+        )
+    }
+
+    /**
+     * FR-24 drag-reorder; persists for the session (live order == snapshot
+     * order after the move). Moving the current item preserves identity and
+     * uninterrupted playback. Out-of-range or no-op moves are ignored.
+     */
+    fun moveQueueItem(from: Int, to: Int) {
+        val snap = queueSnapshot
+        if (snap.isEmpty) return
+        if (from !in 0 until snap.size || to !in 0 until snap.size || from == to) return
+        val items = snap.items.toMutableList().apply { add(to, removeAt(from)) }
+        queueSnapshot = QueueSnapshot.of(items)
+        try {
+            player?.moveMediaItem(from, to)
+        } catch (_: Exception) {
+        }
+        syncFromPlayer()
+    }
+
+    /**
+     * FR-11 toggle semantics: ON physically reorders the live timeline with
+     * [QueueBuilder.reshufflePreservingCurrent] — current track stays put with
+     * ZERO interruption and ZERO extra resolves (its mediaId never moves), the
+     * remainder permutes deterministically per the session seed. OFF restores
+     * the remembered pre-shuffle order (removed items gone, session-added
+     * items appended). The player's native shuffleModeEnabled stays untouched:
+     * there is exactly ONE order truth (this timeline).
+     */
+    fun setShuffleEnabled(enabled: Boolean) {
+        val snap = queueSnapshot
+        if (snap.isEmpty || enabled == shuffleEnabledInternal) {
+            shuffleEnabledInternal = enabled
+            _uiState.value = _uiState.value.copy(shuffleEnabled = enabled)
+            return
+        }
+        val cur = currentPlayerIndexCoerced(snap)
+        if (enabled) {
+            preShuffleIds = snap.sourceIds()
+            val seed = sessionSeed
+                ?: (shuffleSeedOverride ?: System.nanoTime()).also { sessionSeed = it }
+            val target = QueueBuilder.reshufflePreservingCurrent(snap.items, cur, seed)
+            materializeAroundCurrent(target.map { it.id.value }, cur)
+            queueSnapshot = QueueSnapshot.of(target)
+        } else {
+            val stored = preShuffleIds
+            val target = if (stored == null) {
+                snap.items.toList()
+            } else {
+                restoreLinearOrder(stored, snap.items)
+            }
+            preShuffleIds = null
+            // Current may relocate to its linear position — identity-preserving
+            // timeline edits keep it current and playing (no transition fires).
+            materializeFull(target.map { it.id.value })
+            queueSnapshot = QueueSnapshot.of(target)
+        }
+        shuffleEnabledInternal = enabled
+        _uiState.value = _uiState.value.copy(shuffleEnabled = enabled)
+    }
+
+    /** Current shuffle flag (facade-owned truth). */
+    fun isShuffleEnabled(): Boolean = shuffleEnabledInternal
+
+    /**
+     * FR-11 cycling OFF -> ALL -> ONE -> OFF onto the player-NATIVE repeat
+     * mode (media3 owns repeat-one replay + end-of-queue wrap). The engine
+     * self-subscribes to repeat-mode changes and engages its repeat-one
+     * prefetch guard accordingly (4.4 hook). Returns the new mode.
+     */
+    fun cycleRepeatMode(): RepeatMode {
+        val p = player
+        val next = when (p?.repeatModeOrDefault(Player.REPEAT_MODE_OFF)) {
+            Player.REPEAT_MODE_OFF -> RepeatMode.ALL
+            Player.REPEAT_MODE_ALL -> RepeatMode.ONE
+            else -> RepeatMode.OFF
+        }
+        try {
+            p?.repeatMode = next.toMedia3RepeatMode()
+        } catch (_: Exception) {
+        }
+        _uiState.value = _uiState.value.copy(repeatMode = next)
+        return next
+    }
+
+    /** Session-local upcoming-order view (E12 queue sheet substrate). */
+    fun currentQueue(): List<QueueItem> = queueSnapshot.items.toList()
+
+    /**
+     * Test/session seam: adopt an externally-loaded queue — the engine-started
+     * direct-bind harness resolves + loads via [JitResolveEngine]
+     * .startQueueAndPlay, bypassing the facade `setQueue` round-trip, so the
+     * facade adopts the same snapshot afterwards (production parity: UI always
+     * enters through setQueue and never needs this).
+     */
+    internal fun adoptSnapshotForTest(snapshot: QueueSnapshot, currentIndex: Int) {
+        queueSnapshot = snapshot
+        startIndex = if (snapshot.isEmpty) 0 else currentIndex.coerceIn(0, snapshot.size - 1)
+        _uiState.value = _uiState.value.copy(currentItem = snapshot.itemAt(startIndex))
+    }
+
+    // --- story 7.1 internals ---------------------------------------------------
+
+    private fun currentPlayerIndexCoerced(snap: QueueSnapshot): Int =
+        try {
+            (player?.currentMediaItemIndex ?: startIndex).coerceIn(0, snap.size - 1)
+        } catch (_: Exception) {
+            startIndex.coerceIn(0, snap.size - 1)
+        }
+
+    private fun Player.repeatModeOrDefault(default: Int): Int =
+        try {
+            repeatMode
+        } catch (_: Exception) {
+            default
+        }
+
+    private fun RepeatMode.toMedia3RepeatMode(): Int = when (this) {
+        RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+        RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+        RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+    }
+
+    private fun idAt(p: Player, index: Int): String? = try {
+        if (index in 0 until p.mediaItemCount) p.getMediaItemAt(index).mediaId else null
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * Materialize [targetIds] into the live timeline with `moveMediaItem`
+     * operations confined STRICTLY to the segments around [cur] (left segment
+     * then right segment): the current item never moves, so no transition
+     * fires, playback stays gapless and resolve budgets stay at zero.
+     */
+    private fun materializeAroundCurrent(targetIds: List<String>, cur: Int) {
+        val p = player ?: return
+        materializeSegment(p, targetIds, 0, cur - 1)
+        materializeSegment(p, targetIds, cur + 1, targetIds.size - 1)
+    }
+
+    /**
+     * Materialize [targetIds] over the WHOLE timeline (shuffle-OFF restore):
+     * the current item may relocate to its linear slot — safe because moving
+     * the current item preserves identity/playback.
+     */
+    private fun materializeFull(targetIds: List<String>) {
+        val p = player ?: return
+        materializeSegment(p, targetIds, 0, targetIds.size - 1)
+    }
+
+    /** Selection-style placement of [targetIds] into [from..toInclusive] via confined moves. */
+    private fun materializeSegment(p: Player, targetIds: List<String>, from: Int, toInclusive: Int) {
+        if (from >= toInclusive) return
+        for (pos in from..toInclusive) {
+            val want = targetIds.getOrNull(pos) ?: break
+            if (idAt(p, pos) == want) continue
+            var j = -1
+            for (cand in pos + 1..toInclusive) {
+                if (idAt(p, cand) == want) {
+                    j = cand
+                    break
+                }
+            }
+            if (j == -1) continue // membership changed concurrently — defensive skip
+            try {
+                p.moveMediaItem(j, pos)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /**
+     * Pre-shuffle restore semantics (Design Note 3): stored linear ids that
+     * still exist keep their original relative order; session additions made
+     * while shuffled append in their live order.
+     */
+    private fun restoreLinearOrder(stored: List<SourceId>, live: List<QueueItem>): List<QueueItem> {
+        val byId = live.associateBy { it.id }
+        val kept = stored.mapNotNull { byId[it] }
+        val storedSet = stored.toHashSet()
+        val newcomers = live.filter { it.id !in storedSet }
+        return kept + newcomers
+    }
 
     /** Reserved failure injection for E5 (FR-14) — test seam. */
     fun setFailedTrack(item: QueueItem, error: SwayError) {
@@ -479,14 +756,26 @@ class PlayerConnection private constructor(
         val idx = try { p.currentMediaItemIndex } catch (_: Exception) { startIndex }
         val pos = try { p.currentPosition.coerceAtLeast(0L) } catch (_: Exception) { _uiState.value.positionMs }
         val item = queueSnapshot.itemAt(idx) ?: _uiState.value.currentItem
-        // Preserve failedTrack slot across syncs
+        // Preserve failedTrack slot across syncs; story 7.1: mirror the
+        // player-native repeat mode (facade shuffle flag is internal truth).
         val failed = _uiState.value.failedTrack
+        val repeat = try {
+            when (p.repeatMode) {
+                Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+                Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+                else -> RepeatMode.OFF
+            }
+        } catch (_: Exception) {
+            _uiState.value.repeatMode
+        }
         _uiState.value = PlayerUiState(
             isPlaying = isPlaying,
             isBuffering = isBuffering,
             currentItem = item,
             positionMs = pos,
             failedTrack = failed,
+            shuffleEnabled = shuffleEnabledInternal,
+            repeatMode = repeat,
         )
     }
 

@@ -19,6 +19,8 @@ import com.sway.core.model.SwayError
  *   [positionMs] in this state is the snapshot at the last non-tick state change
  *   (play/pause/seek/jump/transition). See [PlayerConnection.positionFlow] docs.
  * - [failedTrack] — reserved slot for E5 typed failure row (FR-14); null when no failure.
+ * - [shuffleEnabled] / [repeatMode] — mode mirrors (story 7.1, FR-11 semantics):
+ *   the facade's playback-vocabulary values, never raw media3 ints (AR-9).
  *
  * Position ticks are NOT broadcast app-wide — only scrubbers subscribe (AD-6,
  * UX §12.8). Collecting [PlayerConnection.uiState] alone does not cause tick
@@ -30,11 +32,29 @@ data class PlayerUiState(
     val currentItem: QueueItem? = null,
     val positionMs: Long = 0L,
     val failedTrack: FailedTrack? = null,
+    val shuffleEnabled: Boolean = false,
+    val repeatMode: RepeatMode = RepeatMode.OFF,
 ) {
     companion object {
         /** Idle/empty state — no playback session. */
         val Idle = PlayerUiState()
     }
+}
+
+/**
+ * Playback-mode vocabulary (story 7.1, FR-11): facade-level mirror of media3's
+ * repeat modes. Mapping to/from media3 ints stays private inside
+ * [PlayerConnection] so UI code never touches transport constants.
+ */
+enum class RepeatMode {
+    /** No looping: end of queue ends playback. */
+    OFF,
+
+    /** Loop the whole queue: past the last item wraps to the first. */
+    ALL,
+
+    /** Replay the current item indefinitely; prefetch is disabled (4.4 guard). */
+    ONE,
 }
 
 /**

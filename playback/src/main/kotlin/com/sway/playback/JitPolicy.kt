@@ -108,6 +108,32 @@ internal object JitPolicy {
     /** Lower bitrate target for the brief-stall downscale replay (L6/AD-7). */
     val DOWNSCALE_QUALITY: Quality = Quality.LOW
 
+    /**
+     * A-4 previous-restart threshold (story 7.1, FR-10 consequence / PRD
+     * assumption A-4, P-5-style tunable): pressing PREVIOUS with at least this
+     * much of the current track already played RESTARTS the current track;
+     * below it the command JUMPS BACK to the previous item (or restarts when
+     * no previous exists).
+     */
+    const val A4_PREVIOUS_RESTART_MS: Long = 5_000L
+
+    /** Verdict of [previousDecision] for the facade to execute. */
+    enum class PreviousDecision { RESTART_CURRENT, GO_BACK }
+
+    /**
+     * Pure A-4 law: >= [A4_PREVIOUS_RESTART_MS] played -> restart current;
+     * otherwise jump back. Negative positions clamp to 0; a queue without a
+     * previous item always restarts (total function, JVM-table-tested).
+     */
+    fun previousDecision(positionMs: Long, hasPrevious: Boolean): PreviousDecision {
+        val pos = positionMs.coerceAtLeast(0L)
+        return if (!hasPrevious || pos >= A4_PREVIOUS_RESTART_MS) {
+            PreviousDecision.RESTART_CURRENT
+        } else {
+            PreviousDecision.GO_BACK
+        }
+    }
+
     /** True iff [uriString] is a sway pending placeholder needing JIT resolution. */
     fun shouldResolveNow(uriString: String?): Boolean = PendingUri.isPending(uriString)
 

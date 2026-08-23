@@ -1,5 +1,6 @@
 package com.sway.playback
 
+import com.sway.core.model.QueueItem
 import com.sway.core.model.QueueSnapshot
 import com.sway.core.model.Song
 import java.util.Random
@@ -90,6 +91,40 @@ object QueueBuilder {
         val all = context.toMutableList()
         fisherYates(all, Random(seed))
         return BuiltQueue(QueueSnapshot.fromSongs(all), 0)
+    }
+
+    /**
+     * Story 7.1 (FR-11 toggle semantics): deterministic mid-session reshuffle
+     * for shuffle-toggle ON — the item at [currentIndex] stays EXACTLY where
+     * it is (no interruption, no re-resolve) and the remainder is permuted by
+     * Fisher-Yates over [seed]. Identical `(items, currentIndex, seed)` always
+     * yields identical order; different seeds differ. Pure function.
+     */
+    fun reshufflePreservingCurrent(
+        items: List<QueueItem>,
+        currentIndex: Int,
+        seed: Long,
+    ): List<QueueItem> {
+        if (items.isEmpty()) return emptyList()
+        val cur = currentIndex.coerceIn(0, items.size - 1)
+        val out = items.toMutableList()
+        val others = out.toMutableList().apply { removeAt(cur) }
+        fisherYatesQueueItems(others, Random(seed))
+        var o = 0
+        for (i in out.indices) {
+            if (i != cur) out[i] = others[o++]
+        }
+        return out
+    }
+
+    /** Classic Fisher-Yates over [QueueItem]s — same primitive as [fisherYates]. */
+    private fun fisherYatesQueueItems(items: MutableList<QueueItem>, random: Random) {
+        for (i in items.size - 1 downTo 1) {
+            val j = random.nextInt(i + 1)
+            val swapped = items[i]
+            items[i] = items[j]
+            items[j] = swapped
+        }
     }
 
     /** Classic Fisher-Yates (Durstenfeld) shuffle — i from n-1 down to 1. */
