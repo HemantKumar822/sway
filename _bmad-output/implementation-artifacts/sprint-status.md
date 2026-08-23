@@ -51,7 +51,7 @@ epic-2-retrospective: optional
 ### Epic 3 — Catalog Adapter: NewPipe Behind Ports (25 pts) — enabler
 | ID | Title | Pts | Deps | Completes | Status |
 |---|---|---|---|---|---|
-| 3.1 | Extractor bootstrap & OkHttp downloader | 3 | 1.1, 2.2 | AR-2, AR-4 | todo |
+| 3.1 | Extractor bootstrap & OkHttp downloader | 3 | 1.1, 2.2 | AR-2, AR-4 | done |
 | 3.2 | Four-type search mappers | 5 | 3.1 | trace FR-1 data side | todo |
 | 3.3 | Album detail mapper | 3 | 3.1 | trace FR-5 data side | todo |
 | 3.4 | Artist detail mapper | 3 | 3.1 | trace FR-6 data side | todo |
@@ -177,6 +177,7 @@ Every FR-1..40 and NFR-1..10 has exactly one completing epic/story (see epics-an
 - 2.2 done — :core:model compileKotlin + :core:model:test 95 tests (65 prior + 13 SwayError + 17 SwayResult) green, exhaustive when without else compiles, 7-category AD-9 mapping (SwayError→SwayErrorUiState 1:1), combinators map/onSuccess/onFailure/recoverToState, Unknown cause preserved, failures as values — commit 0a60052 feat(2.2) closes #5
 - 2.3 done — :core:model compileKotlin + :core:model:test 102 tests (16 ArtworkRef incl. equality/order, cacheKey==canonical, synthetic 4-chain maxres→sd→hq→mq, walk-on-failure candidateAfter) green, zero Android imports, AR-10/AD-11 candidate chain + cache-key + synthetic video-id rule — commit 0dd64fe feat(2.3) closes #6
 - 2.4 done — :core:model compileKotlin + :core:model:test 118 tests (15 PortsContract incl. fakes-compile/SwayResult-no-bare-lists/prefetch-null-silent/Q-AUTO/LOW/MEDIUM/HIGH/AudioRequest/ResolvedAudio-fields/PagedResult-token/QueueSnapshot-immutability + 1 ImportBan + 102 prior) green, fakes FakeCatalogSource/FakeStreamResolver compile against ports, KDoc cites AD-1/AR-2/AD-6/AD-7/AD-9, zero Android imports — commit 5bcf975 feat(2.4) closes #7
+- 3.1 done — :catalog compileDebugKotlin + :catalog:testDebugUnitTest 10 tests green (GET/POST/HEAD flows via MockWebServer3, 429→ReCaptcha, headers/User-Agent/Accept-Language injected, sharedBuilder timeouts 15/30/30 derived not ad-hoc, init idempotent + latestUrl, OOM 10MB cap), SwayDownloaderImpl on CatalogHttpClient.sharedBuilder (AD-3/AR-4), NewPipeInitializer idempotent init, request/response logging via CatalogLog (AR-14 truncated URL + code + latency), zero extractor imports outside :catalog (audit green) — commit feat(3.1) closes #8
 
 ## Action items
 (none — created by retrospectives)
