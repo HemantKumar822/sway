@@ -35,8 +35,8 @@ Point distribution: E1=7 · E2=11 · E3=25 · E4=21 · E5=16 · E6=11 · E7=16 �
 | ID | Title | Pts | Deps | Completes | Status |
 |---|---|---|---|---|---|
 | 1.1 | Gradle workspace & seven-module skeleton | 3 | — | NFR-7/8 substrate (AR-1, AR-13) | done |
-| 1.2 | Hilt graph & startup hygiene | 2 | 1.1 | traces AR-3, AR-9, NFR-1 substrate | todo |
-| 1.3 | Mechanical law CI | 2 | 1.1 | **NFR-7, NFR-8** | todo |
+| 1.2 | Hilt graph & startup hygiene | 2 | 1.1 | traces AR-3, AR-9, NFR-1 substrate | done - Hilt graph verified (AppGraphTest + StartupHygieneTest green) |
+| 1.3 | Mechanical law CI | 2 | 1.1 | **NFR-7, NFR-8** | done - mechanical laws green (isolation + single-stack, LOC, edge audit) |
 epic-1-retrospective: optional
 
 ### Epic 2 — Domain Model & Ports (11 pts) — enabler

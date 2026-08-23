@@ -1,10 +1,21 @@
 package com.sway.music
 
 import android.app.Application
+import com.sway.music.startup.StartupHygiene
+import dagger.hilt.android.HiltAndroidApp
 
 /**
- * Process entry point. Deliberately inert per the startup law (AD-10): no disk,
- * network, or preferences work before first composition. The Hilt graph attaches
- * here in story 1.2.
+ * Process entry point and Hilt graph root (AD-2).
+ *
+ * Startup law (AD-10): onCreate performs no disk, network, or preferences work.
+ * The sole non-framework statement arms debug StrictMode via the variant-split
+ * installer; the release variant of [StartupHygiene] is a structural no-op.
  */
-class SwayApplication : Application()
+@HiltAndroidApp
+class SwayApplication : Application() {
+
+    override fun onCreate() {
+        super.onCreate()
+        StartupHygiene.install()
+    }
+}

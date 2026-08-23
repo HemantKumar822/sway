@@ -1,0 +1,6 @@
+# Sway StrictMode baseline suppressions (NFR-1 / AD-10 — story 1.2)
+#
+# POLICY: this file must stay EMPTY of entries. Every StrictMode violation is triaged
+# to zero before release; an entry added here is a review blocker (story 1.3's CI is
+# expected to enforce emptiness mechanically). This file is never parsed at runtime —
+# the startup path performs no disk work (AD-10).

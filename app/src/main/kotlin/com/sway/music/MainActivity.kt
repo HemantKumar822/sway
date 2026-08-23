@@ -8,11 +8,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
+import dagger.hilt.android.AndroidEntryPoint
 
 /**
  * Launcher activity rendering a bare composable screen (story 1.1 skeleton).
- * Navigation shell and theming land in epic 9; startup law (AD-10) applies from day one.
+ * Hilt entry point since story 1.2 (AR-3); navigation shell and theming land in
+ * epic 9; startup law (AD-10) applies from day one.
  */
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
