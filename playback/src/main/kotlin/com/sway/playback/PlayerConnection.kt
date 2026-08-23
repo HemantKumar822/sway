@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
+import kotlin.coroutines.resume
 import kotlinx.coroutines.launch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executor
@@ -54,7 +55,7 @@ import java.util.concurrent.Executor
  * so sync-budget is wall-clock only, not scheduler.
  */
 class PlayerConnection private constructor(
-    private val scope: CoroutineScope,
+    internal val scope: CoroutineScope,
     private val tickIntervalMs: Long,
     private val context: Context?,
     private val sessionToken: SessionToken?,
@@ -64,7 +65,7 @@ class PlayerConnection private constructor(
 
     // --- state ---------------------------------------------------------------
 
-    private val _uiState = MutableStateFlow(PlayerUiState.Idle)
+    internal val _uiState = MutableStateFlow(PlayerUiState.Idle)
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     // Scrubber tick gating: separate cold flow, but expose collector-count for tests.
@@ -78,7 +79,7 @@ class PlayerConnection private constructor(
 
     /** Facade-owned shuffle flag; the timeline is physically reordered, so the
      * player's native shuffleModeEnabled stays OFF (single order truth). */
-    private var shuffleEnabledInternal: Boolean = false
+    internal var shuffleEnabledInternal: Boolean = false
 
     /** Session shuffle seed: lazily captured on first enable; test seam overrides. */
     private var sessionSeed: Long? = null
@@ -94,7 +95,7 @@ class PlayerConnection private constructor(
      * attached, every mode change writes through and the persisted shuffle
      * flag restores into the facade mirror on attach.
      */
-    private var settings: com.sway.core.data.SettingsRepository? = null
+    internal var settings: com.sway.core.data.SettingsRepository? = null
 
     // --- controller / player handle -----------------------------------------
 
@@ -102,7 +103,7 @@ class PlayerConnection private constructor(
     private var controller: MediaController? = null
 
     /** Active Player handle — either injected test player or the MediaController. */
-    private var player: Player? = injectedPlayer
+    internal var player: Player? = injectedPlayer
 
     private var listener: Player.Listener? = null
     private var listenerAttachedTo: Player? = null
@@ -602,6 +603,11 @@ class PlayerConnection private constructor(
         }
     }
 
+    internal var sessionStore: com.sway.core.data.SessionRestoreRepository? = null
+
+    /** Test-visible: position (ms) landed by the last restore, null until done/skipped. */
+    internal var lastRestoredSeekMsForTest: Long? = null
+
     /**
      * Test/session seam: adopt an externally-loaded queue — the engine-started
      * direct-bind harness resolves + loads via [JitResolveEngine]
@@ -851,6 +857,34 @@ class PlayerConnection private constructor(
         )
     }
 
+    /**
+     * Story 7.3 restore helper: suspends until the player reaches
+     * [Player.STATE_READY] (or errors), event-driven via a transient listener �
+     * deterministic under Robolectric where delayed main-looper resumptions do
+     * not advance with real time.
+     */
+    private suspend fun Player.awaitReady(): Boolean =
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            val l = object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_READY) {
+                        removeListener(this)
+                        if (cont.isActive) cont.resume(true)
+                    }
+                }
+
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    removeListener(this)
+                    if (cont.isActive) cont.resume(false)
+                }
+            }
+            addListener(l)
+            if (playbackState == Player.STATE_READY) {
+                removeListener(l)
+                if (cont.isActive) cont.resume(true)
+            }
+            cont.invokeOnCancellation { removeListener(l) }
+        }
     // --- companion factories --------------------------------------------------
 
     companion object {

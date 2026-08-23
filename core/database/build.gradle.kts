@@ -4,6 +4,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.room)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -12,6 +13,12 @@ android {
 
     defaultConfig {
         minSdk = 26
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
     }
 
     compileOptions {
@@ -31,6 +38,11 @@ dependencies {
     implementation(project(":core:model"))
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.ext.junit)
 }

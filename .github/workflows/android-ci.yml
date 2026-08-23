@@ -32,5 +32,8 @@ jobs:
       - name: Placeholder scheme audit (AD-6 rule 6)
         run: bash scripts/check_placeholder_scheme.sh
 
+      - name: Serializer ownership audit (AD-8)
+        run: bash scripts/check_serializer_ownership.sh
+
       - name: Assemble debug
         run: ./gradlew assembleDebug --stacktrace

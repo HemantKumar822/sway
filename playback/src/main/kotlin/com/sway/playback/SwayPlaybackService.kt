@@ -10,6 +10,7 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
+import com.sway.core.data.SessionRestoreRepository
 import com.sway.core.data.SettingsRepository
 import com.sway.core.model.StreamResolver
 import kotlinx.coroutines.CoroutineScope
@@ -91,6 +92,12 @@ class SwayPlaybackService : MediaLibraryService() {
      */
     internal var settingsForTest: SettingsRepository? = null
 
+    /** Session persistence seam (story 7.3, FR-25) — see [SessionStateSaver]. */
+    internal var sessionStoreForTest: SessionRestoreRepository? = null
+
+    private var sessionSaver: SessionStateSaver? = null
+
+    internal fun getSessionSaverForTest(): SessionStateSaver? = sessionSaver
     private var serviceScope: CoroutineScope? = null
     private var modeRestoreJob: Job? = null
 
@@ -177,13 +184,15 @@ class SwayPlaybackService : MediaLibraryService() {
         // action/metadata/dismissal behavior stays stock (A-10).
         setMediaNotificationProvider(SwayNotificationProvider(this))
 
+        // Story 7.2 + 7.3 lifecycle scope: service-lifetime coroutines only.
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        serviceScope = scope
+
         // Story 7.2 (FR-11): async mode restore BEFORE any queue can be built
         // (session commands arrive later on this same looper, so the restored
         // repeat mode is already on the player when the first queue lands;
         // shuffle is restored facade-side where the timeline order lives).
         settingsForTest?.let { repo ->
-            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-            serviceScope = scope
             val playerRef = player
             modeRestoreJob = scope.launch {
                 val restored = repo.repeatMode.first()
@@ -197,12 +206,26 @@ class SwayPlaybackService : MediaLibraryService() {
                 }
             }
         }
+
+        // Story 7.3 (FR-25): arm the debounced session saver when a store is
+        // attached; it observes the player directly, so saving continues with
+        // zero controllers bound (background advance keeps the row fresh).
+        sessionStoreForTest?.let { store ->
+            sessionSaver = SessionStateSaver(player, scope, store)
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibraryService.MediaLibrarySession? =
         librarySession
 
     override fun onDestroy() {
+        // Story 7.3: final best-effort session flush BEFORE the scope dies
+        // (the periodic heartbeat already bounds loss to well under 5 s).
+        try {
+            sessionSaver?.release()
+        } catch (_: Exception) {
+        }
+        sessionSaver = null
         modeRestoreJob?.cancel()
         modeRestoreJob = null
         serviceScope?.cancel()
