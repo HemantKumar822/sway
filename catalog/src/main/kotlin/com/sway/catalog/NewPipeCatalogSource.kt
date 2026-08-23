@@ -12,6 +12,7 @@ import com.sway.core.model.SwayResult
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.schabi.newpipe.extractor.Image
 import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
@@ -19,22 +20,28 @@ import org.schabi.newpipe.extractor.StreamingService
 import org.schabi.newpipe.extractor.exceptions.ExtractionException
 import org.schabi.newpipe.extractor.exceptions.ParsingException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
 import org.schabi.newpipe.extractor.linkhandler.SearchQueryHandler
+import org.schabi.newpipe.extractor.playlist.PlaylistExtractor
 import org.schabi.newpipe.extractor.search.SearchExtractor
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubePlaylistLinkHandlerFactory
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
+import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.io.IOException
 
 /**
- * Four-type search adapter — story 3.2 (AR-2, AR-8, AR-10, FR-1 trace, FR-2 pagination).
+ * Four-type search adapter + album detail — stories 3.2, 3.3 (AR-2, AR-8, AR-10, FR-1/FR-5 trace).
  *
  * AD-1 isolation: all `org.schabi.newpipe` imports live here inside `:catalog`; public
  * signatures speak exclusively in `core:model` types returning [SwayResult] (AD-9).
  *
  * Responsibilities:
  * - Four `search*` methods with opaque page continuation via [SearchPageTokenCodec].
- * - Parse-time [com.sway.core.model.ArtworkRef] normalization + duration ms conversion via [SearchMappers].
+ * - Album detail `album(id)` via [PlaylistExtractor] → [AlbumMappers] (year nullable,
+ *   track order preserved, artwork chain per track + hero).
+ * - Parse-time [com.sway.core.model.ArtworkRef] normalization + duration ms conversion.
  * - Blank-id items dropped with logged shape info (AR-8).
- * - Typed error mapping: 429→RateLimited, malformed→Parse (shape logged), oversized→UpstreamUnavailable (EP-5),
+ * - Typed error mapping: 429→RateLimited, malformed→Parse (shape logged), oversized→UpstreamUnavailable,
  *   IOException connectivity→Offline vs UpstreamUnavailable.
  *
  * Threading: network (fetch) on [ioDispatcher], mapping on [defaultDispatcher] (AR-14).
@@ -43,17 +50,17 @@ import java.io.IOException
  * @param ioDispatcher adapter dispatcher (IO).
  * @param defaultDispatcher parse/mapping dispatcher (Default).
  * @param extractorFactory test seam: `(SearchQueryHandler) -> SearchExtractor`; default delegates to [service].
+ * @param playlistExtractorFactory test seam for album detail: `(ListLinkHandler) -> PlaylistExtractor`.
  */
 class NewPipeCatalogSource(
     private val service: StreamingService = ServiceList.YouTube,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val defaultDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val extractorFactory: ((SearchQueryHandler) -> SearchExtractor)? = null,
+    private val playlistExtractorFactory: ((ListLinkHandler) -> PlaylistExtractor)? = null,
 ) : CatalogSource {
 
-    // Detail methods not in scope for 3.2 — stubbed as ContentNotFound to keep port contract.
-    override suspend fun album(id: SourceId): SwayResult<Album> =
-        SwayResult.Failure(SwayError.ContentNotFound)
+    override suspend fun album(id: SourceId): SwayResult<Album> = albumInternal(id)
 
     override suspend fun artist(id: SourceId): SwayResult<Artist> =
         SwayResult.Failure(SwayError.ContentNotFound)
@@ -102,6 +109,131 @@ class NewPipeCatalogSource(
         mapper = SearchMappers::toCatalogPlaylist,
         logTag = "searchCatalogPlaylists",
     )
+
+    // -------------------------------------------------------------------------
+    // Album detail — story 3.3 (FR-5 trace)
+    // -------------------------------------------------------------------------
+
+    private suspend fun albumInternal(id: SourceId): SwayResult<Album> = withContext(ioDispatcher) {
+        try {
+            NewPipeInitializer.initIfNeeded()
+        } catch (e: Exception) {
+            CatalogLog.w("album NewPipe init failed: ${e.javaClass.simpleName} ${e.message}")
+        }
+
+        try {
+            val rawId = id.value.trim()
+            // Build link handler via playlist factory (handles OLAK/MPRE/PL ids).
+            val factory = YoutubePlaylistLinkHandlerFactory.getInstance()
+            val url: String = try {
+                factory.getUrl(rawId)
+            } catch (e: ParsingException) {
+                // Fallback for browse-style ids (MPREb_...) that factory may reject: use music browse URL.
+                if (rawId.startsWith("MPREb") || rawId.startsWith("OLAK") || rawId.startsWith("VL")) {
+                    "https://music.youtube.com/browse/$rawId"
+                } else {
+                    throw e
+                }
+            }
+            val linkHandler = try {
+                factory.fromUrl(url)
+            } catch (e: ParsingException) {
+                CatalogLog.w("album invalid id shape: $rawId ${e.message?.take(120)}")
+                return@withContext SwayResult.Failure(SwayError.Parse(shapeInfo = "album invalid id: $rawId".take(500)))
+            }
+
+            val extractor = playlistExtractorFactory?.invoke(linkHandler) ?: service.getPlaylistExtractor(linkHandler)
+
+            // Fetch playlist/album detail (hero + tracklist) on IO dispatcher.
+            extractor.fetchPage()
+
+            val name: String = try {
+                extractor.name
+            } catch (e: ParsingException) {
+                val shape = "album Parse name: ${e.message?.take(300)} id=$rawId"
+                CatalogLog.w(shape)
+                return@withContext SwayResult.Failure(SwayError.Parse(shapeInfo = shape.take(500)))
+            }
+
+            val uploaderName: String? = try { extractor.uploaderName } catch (_: Exception) { null }
+            val uploaderUrl: String? = try { extractor.uploaderUrl } catch (_: Exception) { null }
+            val descriptionText: String? = try {
+                extractor.description?.content?.takeIf { it.isNotBlank() }
+            } catch (_: Exception) { null }
+            val thumbs: List<Image> = try { extractor.thumbnails } catch (_: Exception) { emptyList() }
+            val initialPage = try {
+                extractor.initialPage
+            } catch (e: Exception) {
+                val shape = "album Parse initialPage: ${e.javaClass.simpleName} ${e.message?.take(300)} id=$rawId"
+                CatalogLog.w(shape)
+                return@withContext SwayResult.Failure(SwayError.Parse(shapeInfo = shape.take(500)))
+            }
+
+            val streamItems: List<StreamInfoItem> = initialPage.items ?: emptyList()
+
+            // Map on Default dispatcher (parse/extraction).
+            val album: Album? = withContext(defaultDispatcher) {
+                AlbumMappers.toAlbum(
+                    albumId = rawId,
+                    rawTitle = name,
+                    artistName = uploaderName,
+                    artistUrl = uploaderUrl,
+                    rawYearText = descriptionText,
+                    heroImages = thumbs,
+                    trackItems = streamItems,
+                )
+            }
+
+            if (album == null) {
+                CatalogLog.w("album mapper returned null for id=$rawId name=${name.take(40)} — blank id law")
+                return@withContext SwayResult.Failure(SwayError.ContentNotFound)
+            }
+
+            // Log extractor-side errors if any.
+            val errors = initialPage.errors
+            if (!errors.isNullOrEmpty()) {
+                CatalogLog.w("album extractor reported ${errors.size} item errors: ${errors.first().message?.take(200)}")
+            }
+
+            SwayResult.Success(album)
+        } catch (e: ReCaptchaException) {
+            CatalogLog.w("album RateLimited (429): ${e.message?.take(120)} id=${id.value.take(20)}")
+            SwayResult.Failure(SwayError.RateLimited)
+        } catch (e: IOException) {
+            val msg = e.message ?: ""
+            if (msg.contains("exceeds 10MB", ignoreCase = true) || msg.contains("exceeds limit", ignoreCase = true)) {
+                CatalogLog.w("album UpstreamUnavailable (oversized): $msg")
+                return@withContext SwayResult.Failure(SwayError.UpstreamUnavailable)
+            }
+            val isOffline = msg.contains("Unable to resolve host", true) ||
+                msg.contains("Failed to connect", true) ||
+                e is java.net.UnknownHostException ||
+                e is java.net.ConnectException ||
+                e.cause is java.net.UnknownHostException
+            if (isOffline) {
+                CatalogLog.w("album Offline IOException: ${e.javaClass.simpleName} ${msg.take(120)}")
+                SwayResult.Failure(SwayError.Offline)
+            } else {
+                CatalogLog.w("album Upstream IOException: ${e.javaClass.simpleName} ${msg.take(200)}")
+                SwayResult.Failure(SwayError.UpstreamUnavailable)
+            }
+        } catch (e: ParsingException) {
+            val shape = "album Parse: ${e.javaClass.simpleName} ${e.message?.take(300)} id=${id.value.take(20)}"
+            CatalogLog.w(shape)
+            SwayResult.Failure(SwayError.Parse(shapeInfo = shape.take(500)))
+        } catch (e: ExtractionException) {
+            val shape = "album Extraction: ${e.javaClass.simpleName} ${e.message?.take(300)} id=${id.value.take(20)}"
+            CatalogLog.w(shape)
+            if (e.javaClass.simpleName.contains("NotFound", true) || e.message?.contains("not found", true) == true) {
+                SwayResult.Failure(SwayError.ContentNotFound)
+            } else {
+                SwayResult.Failure(SwayError.Parse(shapeInfo = shape.take(500)))
+            }
+        } catch (e: Exception) {
+            CatalogLog.e("album Unknown: ${e.javaClass.simpleName} ${e.message} id=${id.value.take(20)}", e)
+            SwayResult.Failure(SwayError.Unknown(e))
+        }
+    }
 
     // -------------------------------------------------------------------------
     // Internal generic search driver
