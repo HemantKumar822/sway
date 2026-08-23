@@ -22,14 +22,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Pure decision helpers for lazy resolution (story 4.4, FR-12/AR-6) — trivially
- * unit-testable policy extracted from [JitResolveEngine].
+ * Pure decision helpers for lazy resolution (story 4.4, FR-12/AR-6) and the
+ * story 5.2 read-time validation layer (AD-7 defense layer 1, NFR-3) —
+ * trivially unit-testable policy extracted from [JitResolveEngine].
  *
  * - [shouldResolveNow] — a URI earns a just-in-time resolve iff it is a
  *   [PendingUri] placeholder (single-owner scheme law, AD-6 rule 6).
- * - [isPrefetchUsable] — the prefetch age cap: a cached [ResolvedAudio] may be
- *   trusted only while it is not expired at read time (E5 folds the -5 min
- *   margin defense into this single check point later; margin 0 for now).
+ * - [isReadValid] — THE single read-time validity check: any held or freshly
+ *   resolved [ResolvedAudio] may be used only while more than
+ *   [READ_MARGIN_MS] of lifetime remains at the moment of use. The former
+ *   prefetch age cap folded into this one check (no second mechanism).
  * - [coerceStartIndex] — normalizes session-provided start indices
  *   ([C.INDEX_UNSET], out-of-bounds, empty playlists) to a safe anchor.
  * - [withResolvedUri] — rebuilds a queue item keeping its identity (mediaId)
@@ -37,16 +39,24 @@ import kotlinx.coroutines.launch
  */
 internal object JitPolicy {
 
+    /**
+     * Read-time validity margin, P-5-tunable initial target (NFR-3 / AD-7
+     * layer 1): a stream URL must outlive "now" by more than this much at the
+     * moment of use, otherwise it is discarded and re-resolved before play.
+     */
+    const val READ_MARGIN_MS: Long = 5L * 60L * 1000L
+
     /** True iff [uriString] is a sway pending placeholder needing JIT resolution. */
     fun shouldResolveNow(uriString: String?): Boolean = PendingUri.isPending(uriString)
 
     /**
-     * Prefetch age cap: [audio] is usable at [nowEpochMs] only when present and
-     * not expired ([ResolvedAudio.isExpiredAt]). Expired entries are discarded
-     * and a fresh resolve happens instead.
+     * Read-time validation (AD-7 layer 1): [audio] may be used at [nowEpochMs]
+     * only when present AND its own parsed expiry lies further in the future
+     * than [READ_MARGIN_MS]. Entries failing this are discarded and renewed
+     * (invalidate + forceRefresh resolve) BEFORE play.
      */
-    fun isPrefetchUsable(audio: ResolvedAudio?, nowEpochMs: Long): Boolean =
-        audio != null && !audio.isExpiredAt(nowEpochMs)
+    fun isReadValid(audio: ResolvedAudio?, nowEpochMs: Long): Boolean =
+        audio != null && !audio.isExpiredAt(nowEpochMs, READ_MARGIN_MS)
 
     /** Safe start anchor: [C.INDEX_UNSET]/out-of-bounds degrade to 0 / last item. */
     fun coerceStartIndex(startIndex: Int, size: Int): Int {
@@ -81,10 +91,17 @@ internal object JitPolicy {
  * - **Optional prefetch:** default-off opportunistic
  *   [StreamResolver.prefetchNext] for the next entry during playback. Never
  *   counts against the up-front budget (distinct resolver call), silent-null on
- *   failure, results held in a cache validated by the
- *   [JitPolicy.isPrefetchUsable] age cap before ANY use, and skipped entirely
- *   while [setRepeatOneRequested] is true (mode flag arrives with E7; the guard
- *   hook is coded now).
+ *   failure, results held in a cache validated by the single read-time check
+ *   ([JitPolicy.isReadValid]) before ANY use, and skipped entirely while
+ *   [setRepeatOneRequested] is true (mode flag arrives with E7; the guard hook
+ *   is coded now).
+ *
+ * Story 5.2 (AD-7 defense layer 1): EVERY consumption of a held or freshly
+ * resolved rendition — start swap, JIT transition, prefetched cache hit — goes
+ * through [resolveForUse], which applies the one [JitPolicy.isReadValid]
+ * margin check at use time; a stale cache entry is discarded, invalidated and
+ * re-resolved with `forceRefresh` BEFORE play, so playback never inherits a
+ * soon-to-die URL.
  *
  * Failures travel as typed values: every resolve failure publishes
  * [FailedTrack] to the injected [onFailure] handler and hoists it on
@@ -176,7 +193,7 @@ internal class JitResolveEngine(
         val uri = JitPolicy.uriStringOf(mediaItems[idx])
         if (!JitPolicy.shouldResolveNow(uri)) return mediaItems
         val sourceId = PendingUri.extractSourceId(uri) ?: return mediaItems
-        return when (val result = resolver.resolveAudio(sourceId, AudioRequest.Default)) {
+        return when (val result = resolveForUse(sourceId)) {
             is SwayResult.Success -> mediaItems.mapIndexed { i, item ->
                 if (i == idx) JitPolicy.withResolvedUri(item, result.data.url) else item
             }
@@ -245,7 +262,7 @@ internal class JitResolveEngine(
                 val target = desiredTargetId ?: break
                 if (target == lastAttempted) break
                 lastAttempted = target
-                val outcome = resolveOrConsumeCache(target)
+                val outcome = resolveForUse(target)
                 applyOutcome(target, outcome)
             }
             desiredTargetId = null
@@ -270,7 +287,7 @@ internal class JitResolveEngine(
      * placeholder, no cache/in-flight duplicate. Uses
      * [StreamResolver.prefetchNext] exclusively (never counts against FR-12's
      * up-front budget), tolerates its silent-null contract, stores results
-     * behind the age-cap cache.
+     * behind the single read-time validity check ([JitPolicy.isReadValid]).
      */
     fun maybePrefetchNext() {
         if (!prefetchEnabled || repeatOneRequested || released) return
@@ -295,22 +312,68 @@ internal class JitResolveEngine(
     // --- internals ------------------------------------------------------------------
 
     /**
-     * Cache-first resolution for a pending entry: a prefetched rendition is
-     * trusted only when it passes the [JitPolicy.isPrefetchUsable] age cap at
-     * read time; stale entries are discarded and a fresh `resolveAudio`
-     * happens instead (the cap applies BEFORE any use).
+     * THE single read path for any rendition about to be used (story 5.2,
+     * AD-7 defense layer 1). Order:
+     * 1. A prefetched cache entry is consumed only when it passes the one
+     *    [JitPolicy.isReadValid] margin check at read time.
+     * 2. A stale entry is DISCARDED: `invalidate` purges resolver-side state
+     *    and a fresh `resolveAudio` with `forceRefresh = true` runs BEFORE play.
+     * 3. A fresh resolve whose URL is itself marginal earns exactly ONE forced
+     *    revalidation (bounded — a pathological resolver can neither hot-loop
+     *    the worker nor inflate happy-path budgets); the freshest result wins,
+     *    best-effort (layer 2 owns genuine mid-play expiry).
      */
-    private suspend fun resolveOrConsumeCache(sourceId: SourceId): SwayResult<ResolvedAudio> {
+    private suspend fun resolveForUse(sourceId: SourceId): SwayResult<ResolvedAudio> {
         val cached = prefetchCache.remove(sourceId)
-        if (JitPolicy.isPrefetchUsable(cached, clock())) {
+        if (JitPolicy.isReadValid(cached, clock())) {
             return SwayResult.Success(cached!!)
         }
-        return try {
-            resolver.resolveAudio(sourceId, AudioRequest.Default)
+        if (cached != null) {
+            safeInvalidate(sourceId)
+            return forcedRefreshOrKeep(sourceId, fallback = null)
+        }
+        return when (val outcome = safeResolveAudio(sourceId, AudioRequest.Default)) {
+            is SwayResult.Failure -> outcome
+            is SwayResult.Success ->
+                if (JitPolicy.isReadValid(outcome.data, clock())) outcome
+                else forcedRefreshOrKeep(sourceId, fallback = outcome.data)
+        }
+    }
+
+    /**
+     * Exactly ONE forced-refresh resolve for a failing read-validation check:
+     * its Success replaces the rejected rendition; on Failure the previous
+     * best answer wins ([fallback] — null for stale cache entries, whose
+     * discard is strict), so a working-now URL beats a typed failure that
+     * layer 2 (5.3) exists to handle.
+     */
+    private suspend fun forcedRefreshOrKeep(
+        sourceId: SourceId,
+        fallback: ResolvedAudio?,
+    ): SwayResult<ResolvedAudio> =
+        when (val retried = safeResolveAudio(sourceId, AudioRequest.refresh())) {
+            is SwayResult.Success -> retried
+            is SwayResult.Failure -> fallback?.let { SwayResult.Success(it) } ?: retried
+        }
+
+    /** Purge resolver-side state for a rejected rendition; never throws. */
+    private fun safeInvalidate(sourceId: SourceId) {
+        try {
+            resolver.invalidate(sourceId)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Resolver call converted to a typed value; contract-violating throws become [SwayError.Unknown]. */
+    private suspend fun safeResolveAudio(
+        sourceId: SourceId,
+        request: AudioRequest,
+    ): SwayResult<ResolvedAudio> =
+        try {
+            resolver.resolveAudio(sourceId, request)
         } catch (t: Throwable) {
             SwayResult.Failure(SwayError.Unknown(t))
         }
-    }
 
     /**
      * Swap a resolved URL into the player by MEDIA-ID scan (immune to index

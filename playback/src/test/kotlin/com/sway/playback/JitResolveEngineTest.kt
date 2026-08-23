@@ -498,18 +498,20 @@ class JitResolveEngineTest {
         assertEquals(0, JitPolicy.coerceStartIndex(C.INDEX_UNSET, 0))
 
         val now = 1_700_000_000_000L
-        val fresh = ResolvedAudio(
+        val margin = JitPolicy.READ_MARGIN_MS
+        assertEquals("P-5-tunable named margin (NFR-3 layer 1)", 5L * 60L * 1000L, margin)
+        fun audioAt(expiresAtEpochMs: Long) = ResolvedAudio(
             url = "https://a/f",
-            expiresAtEpochMs = now + 1,
+            expiresAtEpochMs = expiresAtEpochMs,
             bitrateKbps = 96,
             containerHint = null,
             backendTag = "b",
             renditionCacheKey = "k",
         )
-        val expired = fresh.copy(expiresAtEpochMs = now)
-        assertTrue(JitPolicy.isPrefetchUsable(fresh, now))
-        assertFalse(JitPolicy.isPrefetchUsable(expired, now))
-        assertFalse(JitPolicy.isPrefetchUsable(null, now))
+        assertTrue("Beyond margin is readable", JitPolicy.isReadValid(audioAt(now + margin + 1), now))
+        assertFalse("Exactly at margin is expired (inclusive law)", JitPolicy.isReadValid(audioAt(now + margin), now))
+        assertFalse("Inside margin is expired", JitPolicy.isReadValid(audioAt(now + margin - 1), now))
+        assertFalse("Absent rendition is unreadable", JitPolicy.isReadValid(null, now))
     }
 
     // -----------------------------------------------------------------------
