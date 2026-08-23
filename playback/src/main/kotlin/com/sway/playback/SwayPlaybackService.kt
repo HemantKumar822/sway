@@ -195,8 +195,13 @@ class SwayPlaybackService : MediaLibraryService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // E6 owns recents-swipe semantics (FR-21). Skeleton keeps default:
-        // do not auto-stop playback here; super handles controller cleanup.
+        // Story 6.3 (FR-21, P-3/OQ-5): the recents-swipe posture IS media3's
+        // default — MediaSessionService.onTaskRemoved (1.11.0 source):
+        // `if (!isPlaybackOngoing() || !isAnySessionPlaying()) {
+        // pauseAllPlayersAndStopSelf(); }` — playing survives the swipe with
+        // the notification as the stop affordance; paused/idle pauses all and
+        // self-stops. Proven hermetically in RecentsSwipeComplianceTest; no
+        // hand-rolled stop/continue logic here by design (AD-6 rule 8).
         super.onTaskRemoved(rootIntent)
     }
 

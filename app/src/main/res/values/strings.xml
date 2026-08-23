@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Sway</string>
+
+    <!-- Story 6.3: explain-first POST_NOTIFICATIONS rationale (AC5/AC7).
+         Wording carries the lock-screen-control consequence per the story:
+         what the user loses without it, why Sway asks. -->
+    <string name="notif_permission_rationale_title">Control Sway from anywhere</string>
+    <string name="notif_permission_rationale_body">Sway keeps your music on a notification so you can play, pause, and skip from the lock screen and while using other apps. Allow notifications to keep those controls one tap away.</string>
+    <string name="notif_permission_rationale_continue">Continue</string>
+
+    <!-- Story 6.3: denied-state degradation note (release-checklist artifact,
+         AC4; feeds R-3). Media-session notifications are platform-exempt, so
+         playback controls keep working; this note documents the honest limit
+         for surfaces that are not exempt. -->
+    <string name="notif_permission_denied_note">Without notification permission, Sway can\'t surface non-playback notifications. Playback controls on the lock screen and media notification keep working.</string>
 </resources>

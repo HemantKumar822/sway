@@ -67,4 +67,10 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.ext.junit)
+
+    // Story 6.3 device-gated permission-flow skeleton — mirrors the
+    // :playback androidTest trio (tag-gated @Ignore, never runs without a device).
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.core)
 }
