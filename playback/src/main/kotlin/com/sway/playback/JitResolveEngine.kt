@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import com.sway.core.model.AudioRequest
 import com.sway.core.model.QueueItem
@@ -22,8 +23,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Pure decision helpers for lazy resolution (story 4.4, FR-12/AR-6) and the
- * story 5.2 read-time validation layer (AD-7 defense layer 1, NFR-3) —
+ * Pure decision helpers for lazy resolution (story 4.4, FR-12/AR-6), the
+ * story 5.2 read-time validation layer (AD-7 defense layer 1, NFR-3) and the
+ * story 5.3 error-triggered renewal layer (AD-7 defense layer 2, FR-13) —
  * trivially unit-testable policy extracted from [JitResolveEngine].
  *
  * - [shouldResolveNow] — a URI earns a just-in-time resolve iff it is a
@@ -32,6 +34,12 @@ import kotlinx.coroutines.launch
  *   resolved [ResolvedAudio] may be used only while more than
  *   [READ_MARGIN_MS] of lifetime remains at the moment of use. The former
  *   prefetch age cap folded into this one check (no second mechanism).
+ * - [isExpiryRetryableSourceError] / [mapPlayerErrorToSwayError] /
+ *   [isRenewalEligible] / [clampResumePosition] — layer-2 renewal law:
+ *   classify source-class expiry errors, map surfacing categories, gate
+ *   eligibility on audible-progress evidence and clamp resume seeks to
+ *   [RESUME_TOLERANCE_MS] of the captured position (mechanism restores it
+ *   exactly).
  * - [coerceStartIndex] — normalizes session-provided start indices
  *   ([C.INDEX_UNSET], out-of-bounds, empty playlists) to a safe anchor.
  * - [withResolvedUri] — rebuilds a queue item keeping its identity (mediaId)
@@ -46,6 +54,35 @@ internal object JitPolicy {
      */
     const val READ_MARGIN_MS: Long = 5L * 60L * 1000L
 
+    /**
+     * Source-class error-code window (story 5.3, FR-13 / AD-7 defense layer 2):
+     * `PlaybackException` codes 2000..2999 cover data-loading failures —
+     * HTTP status errors (`ERROR_CODE_IO_BAD_HTTP_STATUS` = 2004 carries the
+     * 403/410 expired-URL family), file-not-found and network failures — i.e.
+     * exactly the "playback errored anyway after layer 1" class that earns an
+     * invisible renewal. Codes outside the window are fatal for renewal.
+     */
+    const val SOURCE_ERROR_CODE_MIN: Int = 2000
+
+    /** Inclusive upper bound of the source-class window; see [SOURCE_ERROR_CODE_MIN]. */
+    const val SOURCE_ERROR_CODE_MAX: Int = 2999
+
+    /**
+     * Resume tolerance for error-triggered renewal, P-5-tunable initial target
+     * (FR-13 / NFR-3 / SM-2): audible resume must land within this window of
+     * the last audible position. The renewal mechanism restores the captured
+     * position exactly; the bound exists for wall-clock drift in production.
+     */
+    const val RESUME_TOLERANCE_MS: Long = 3_000L
+
+    /**
+     * Renewal budget per SourceId per progress-episode (NFR-3 anti-hot-loop
+     * law): at most this many invalidate+forceRefresh resolve attempts may be
+     * spent on one item before the typed failure surfaces instead. The budget
+     * resets when successful playback progress is observed again.
+     */
+    const val MAX_RENEWALS_PER_EPISODE: Int = 2
+
     /** True iff [uriString] is a sway pending placeholder needing JIT resolution. */
     fun shouldResolveNow(uriString: String?): Boolean = PendingUri.isPending(uriString)
 
@@ -57,6 +94,34 @@ internal object JitPolicy {
      */
     fun isReadValid(audio: ResolvedAudio?, nowEpochMs: Long): Boolean =
         audio != null && !audio.isExpiredAt(nowEpochMs, READ_MARGIN_MS)
+
+    /** True iff [errorCode] sits in the retryable source-class expiry window. */
+    fun isExpiryRetryableSourceError(errorCode: Int): Boolean =
+        errorCode in SOURCE_ERROR_CODE_MIN..SOURCE_ERROR_CODE_MAX
+
+    /**
+     * Typed category for a player error surfaced after its renewal budget is
+     * spent (or immediately, when fatal): source-class codes map to
+     * [SwayError.UpstreamUnavailable] (HTTP-status family per AD-9 row 3);
+     * everything else is [SwayError.Unknown] preserving the cause (AR-14).
+     */
+    fun mapPlayerErrorToSwayError(errorCode: Int, cause: Throwable? = null): SwayError =
+        if (isExpiryRetryableSourceError(errorCode)) SwayError.UpstreamUnavailable
+        else SwayError.Unknown(cause)
+
+    /**
+     * Renewal eligibility (story 5.3): renewal is layer 2 for MID-play death,
+     * so audible-progress evidence must exist — either a captured position
+     * beyond the track start or an observed playing state for the item.
+     * Position-0-never-played failures belong to layer 1 / the JIT path /
+     * the 5.4 watchdog backstop, and this filter keeps environmental prepare
+     * noise out of the renewal budget.
+     */
+    fun isRenewalEligible(capturedPositionMs: Long, playingObserved: Boolean): Boolean =
+        capturedPositionMs > 0L || playingObserved
+
+    /** Resume positions are clamped to the track start; never negative. */
+    fun clampResumePosition(positionMs: Long): Long = positionMs.coerceAtLeast(0L)
 
     /** Safe start anchor: [C.INDEX_UNSET]/out-of-bounds degrade to 0 / last item. */
     fun coerceStartIndex(startIndex: Int, size: Int): Int {
@@ -103,6 +168,20 @@ internal object JitPolicy {
  * re-resolved with `forceRefresh` BEFORE play, so playback never inherits a
  * soon-to-die URL.
  *
+ * Story 5.3 (AD-7 defense layer 2, FR-13 COMPLETES HERE): when playback errors
+ * anyway — a source-class `PlaybackException` (403/410 expired-URL family,
+ * codes 2000..2999) raised through `Player.STATE_IDLE` — [onPlayerError]
+ * captures the last audible position (live read preferred over the progress
+ * ticker snapshot) and the play intent synchronously, then runs a
+ * single-flight-per-source renewal: bounded [JitPolicy.MAX_RENEWALS_PER_EPISODE]
+ * attempts of invalidate + forceRefresh resolve, applying Success via
+ * `replaceMediaItem` (mediaId scan) + `seekTo(captured)` + `prepare()` +
+ * conditional `play()`, so the listener never perceives a restart and resume
+ * lands within +/-[JitPolicy.RESUME_TOLERANCE_MS]. Budgets reset on successful
+ * playback progress ([noteSuccessfulProgress]); exhausted budgets surface the
+ * typed category instead of resolving; fatal error classes surface immediately
+ * with zero renewal attempts; placeholder items stay owned by the JIT path.
+ *
  * Failures travel as typed values: every resolve failure publishes
  * [FailedTrack] to the injected [onFailure] handler and hoists it on
  * [latestFailure] — never a crash, never a thrown exception across the session
@@ -143,6 +222,23 @@ internal class JitResolveEngine(
     private var jitJob: Job? = null
     private var desiredTargetId: SourceId? = null
     private var released = false
+
+    // --- story 5.3: error-triggered renewal state ------------------------------
+
+    /** One renewal pipeline per SourceId at a time (single-flight dedup). */
+    private val renewalJobs = mutableMapOf<SourceId, Job>()
+
+    /**
+     * Resolve attempts spent per SourceId since the last successful-progress
+     * observation (progress-episode budget; NFR-3 anti-hot-loop law).
+     */
+    private val renewalBudgets = mutableMapOf<SourceId, Int>()
+
+    /** Service-side progress ticker snapshot: last position with audible flow. */
+    private var lastAudibleProgressMs: Long = 0L
+
+    /** Sticky per-item evidence that audio actually played (survives pause). */
+    private var audiblePlayingObserved: Boolean = false
 
     init {
         player.addListener(this)
@@ -270,12 +366,176 @@ internal class JitResolveEngine(
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        // A new item must re-earn audible-progress evidence (story 5.3).
+        audiblePlayingObserved = false
+        lastAudibleProgressMs = 0L
         handlePendingCurrent()
     }
 
     override fun onPlaybackStateChanged(playbackState: Int) {
         if (playbackState == Player.STATE_READY || playbackState == Player.STATE_BUFFERING) {
             maybePrefetchNext()
+        }
+        if (playbackState == Player.STATE_READY) noteSuccessfulProgress()
+    }
+
+    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        if (isPlaying) noteSuccessfulProgress()
+    }
+
+    /**
+     * Successful playback progress observed (isPlaying=true or STATE_READY):
+     * refreshes the ticker snapshot and clears ALL renewal budgets — a healthy
+     * episode just ended, so the next expiry gets a full budget again (FR-13).
+     * Internal seam: production fires via player listeners, tests may drive it
+     * directly (mirrors [handlePendingCurrent]).
+     */
+    internal fun noteSuccessfulProgress() {
+        audiblePlayingObserved = true
+        val live = try {
+            player.currentPosition
+        } catch (_: Exception) {
+            0L
+        }
+        if (live > 0L) lastAudibleProgressMs = live
+        renewalBudgets.clear()
+    }
+
+    // --- error-triggered renewal (story 5.3, AD-7 defense layer 2) -----------------
+
+    /**
+     * Player error event (fires on the main looper BEFORE the IDLE state
+     * change reaches other listeners). Delegates to [handlePlayerError] with
+     * the typed error code; the exception itself is preserved as the cause for
+     * fatal-class surfacing (AR-14).
+     */
+    override fun onPlayerError(error: PlaybackException) {
+        handlePlayerError(error.errorCode, error)
+    }
+
+    /**
+     * Layer-2 entry: classify [errorCode] and either renew invisibly or
+     * surface the typed category. Order of guards:
+     * 1. Placeholder current items -> skip (the JIT worker owns them).
+     * 2. Fatal class (outside the source window) -> immediate typed failure,
+     *    ZERO renewal attempts.
+     * 3. No audible-progress evidence -> silent skip (layer 2 is for MID-play
+     *    death; also keeps environmental prepare noise out of the budget).
+     * 4. Budget spent -> typed failure without resolving (no hot loop).
+     * 5. Renewal already in flight for this SourceId -> coalesce (single
+     *    flight; concurrent duplicate errors share one resolve).
+     * Position and play intent are captured synchronously here — before any
+     * later player mutation can reset them.
+     */
+    internal fun handlePlayerError(errorCode: Int, cause: Throwable? = null) {
+        if (released) return
+        val sourceId = currentResolvedSourceId() ?: return
+        if (!JitPolicy.isExpiryRetryableSourceError(errorCode)) {
+            publishFailure(sourceId, JitPolicy.mapPlayerErrorToSwayError(errorCode, cause))
+            return
+        }
+        val resumePositionMs = captureResumePositionMs()
+        if (!JitPolicy.isRenewalEligible(resumePositionMs, audiblePlayingObserved)) return
+        if ((renewalBudgets[sourceId] ?: 0) >= JitPolicy.MAX_RENEWALS_PER_EPISODE) {
+            publishFailure(sourceId, JitPolicy.mapPlayerErrorToSwayError(errorCode, cause))
+            return
+        }
+        if (renewalJobs[sourceId]?.isActive == true) return
+        val wasPlaying = try {
+            player.playWhenReady
+        } catch (_: Exception) {
+            false
+        }
+        renewalJobs[sourceId] = scope.launch {
+            runRenewal(sourceId, resumePositionMs, wasPlaying, errorCode, cause)
+        }
+    }
+
+    /**
+     * Last audible position at error time: the live read wins when it carries
+     * information (ExoPlayer retains the error position until prepare);
+     * otherwise the progress-ticker snapshot taken during playback does.
+     */
+    private fun captureResumePositionMs(): Long {
+        val live = try {
+            player.currentPosition
+        } catch (_: Exception) {
+            0L
+        }
+        return if (live > 0L) live else lastAudibleProgressMs
+    }
+
+    /**
+     * [SourceId] of the current item iff it holds a RESOLVED rendition.
+     * Placeholder items return null — their failures belong to the JIT
+     * resolution path, never to layer-2 renewal.
+     */
+    private fun currentResolvedSourceId(): SourceId? {
+        val index = currentIndexOrNull() ?: return null
+        val item = itemAtOrNull(index) ?: return null
+        val uri = JitPolicy.uriStringOf(item)
+        if (uri == null || JitPolicy.shouldResolveNow(uri)) return null
+        return SourceId.parse(item.mediaId ?: return null)
+    }
+
+    /**
+     * Bounded renewal loop for one trigger: spend up to
+     * [JitPolicy.MAX_RENEWALS_PER_EPISODE] attempts of invalidate +
+     * forceRefresh resolve; the FIRST Success applies the fresh rendition
+     * ([applyRenewedRendition]) and stops; exhausting the budget publishes
+     * the last resolver failure. Never throws.
+     */
+    private suspend fun runRenewal(
+        sourceId: SourceId,
+        resumePositionMs: Long,
+        wasPlaying: Boolean,
+        errorCode: Int,
+        cause: Throwable?,
+    ) {
+        try {
+            var lastError: SwayError = JitPolicy.mapPlayerErrorToSwayError(errorCode, cause)
+            while (!released && (renewalBudgets[sourceId] ?: 0) < JitPolicy.MAX_RENEWALS_PER_EPISODE) {
+                renewalBudgets[sourceId] = (renewalBudgets[sourceId] ?: 0) + 1
+                safeInvalidate(sourceId)
+                when (val result = safeResolveAudio(sourceId, AudioRequest.refresh())) {
+                    is SwayResult.Success -> {
+                        applyRenewedRendition(sourceId, result.data, resumePositionMs, wasPlaying)
+                        return
+                    }
+                    is SwayResult.Failure -> lastError = result.error
+                }
+            }
+            if (!released) publishFailure(sourceId, lastError)
+        } finally {
+            renewalJobs.remove(sourceId)
+        }
+    }
+
+    /**
+     * Swap the renewed URL into the player by MEDIA-ID scan and restore the
+     * listener's world exactly: `replaceMediaItem` (identity preserved) ->
+     * `seekTo` the captured position (lands within +/-[JitPolicy.RESUME_TOLERANCE_MS];
+     * the mechanism restores it exactly) -> `prepare` (required after an
+     * error-driven IDLE) -> `play` only when the user was playing. Missing
+     * ids skip silently (item vanished mid-renewal; 4.4 semantics).
+     */
+    private fun applyRenewedRendition(
+        sourceId: SourceId,
+        audio: ResolvedAudio,
+        resumePositionMs: Long,
+        wasPlaying: Boolean,
+    ) {
+        onMainLooper {
+            if (released) return@onMainLooper
+            val index = indexOfMediaId(sourceId.value) ?: return@onMainLooper
+            val original = itemAtOrNull(index) ?: return@onMainLooper
+            try {
+                player.replaceMediaItem(index, JitPolicy.withResolvedUri(original, audio.url))
+                player.seekTo(JitPolicy.clampResumePosition(resumePositionMs))
+                player.prepare()
+                if (wasPlaying) player.play()
+            } catch (_: Exception) {
+            }
         }
     }
 

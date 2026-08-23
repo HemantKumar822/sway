@@ -37,6 +37,11 @@ import kotlinx.coroutines.launch
  * just-in-time transitions/prefetch run inside the engine via its own player
  * listener, so auto-advance needs zero controllers bound. Resolve failures are
  * hoisted as typed values on [lastFailure] — never crashes.
+ *
+ * Story 5.3 (FR-13/AD-7 layer 2): the engine's error listener renews expired
+ * streams invisibly with position resume; the idle self-stop listener is
+ * error-aware so an error-driven STATE_IDLE never stops the service while the
+ * renewal layer owns recovery.
  */
 class SwayPlaybackService : MediaLibraryService() {
 
@@ -103,13 +108,19 @@ class SwayPlaybackService : MediaLibraryService() {
 
         // Idle self-stop hook: when player goes idle and is not playing,
         // stop the foreground service (NFR-10). The onDestroy path also
-        // calls stopSelf after release.
+        // calls stopSelf after release. Story 5.3: an ERROR-driven STATE_IDLE
+        // (playerError != null) is owned by the renewal layer (AD-7 defense
+        // layer 2) and must NEVER trip self-stop — the service stays alive so
+        // recovery can swap in a fresh URL and resume; only user-intent idle
+        // (no session, or playWhenReady=false without an error) stops here.
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_IDLE) {
-                    if (librarySession == null || player.playWhenReady.not()) {
-                        stopSelf()
-                    }
+                if (
+                    playbackState == Player.STATE_IDLE &&
+                    player.playerError == null &&
+                    (librarySession == null || player.playWhenReady.not())
+                ) {
+                    stopSelf()
                 }
             }
         })
