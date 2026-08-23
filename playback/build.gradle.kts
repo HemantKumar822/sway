@@ -1,6 +1,6 @@
 // Playback engine module (AD-6): SwayPlaybackService owns the player; UI talks only
-// through the PlayerConnection facade. The sway://pending/<sourceId> placeholder scheme
-// is defined in exactly one place inside this module.
+// through the PlayerConnection facade. PendingUri placeholder scheme is defined
+// in exactly one place inside this module (PendingUri.PREFIX).
 
 plugins {
     alias(libs.plugins.android.library)
