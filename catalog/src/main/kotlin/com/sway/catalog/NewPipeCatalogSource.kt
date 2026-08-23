@@ -17,13 +17,17 @@ import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.StreamingService
+import org.schabi.newpipe.extractor.channel.ChannelExtractor
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabExtractor
 import org.schabi.newpipe.extractor.exceptions.ExtractionException
 import org.schabi.newpipe.extractor.exceptions.ParsingException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
 import org.schabi.newpipe.extractor.linkhandler.SearchQueryHandler
 import org.schabi.newpipe.extractor.playlist.PlaylistExtractor
+import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.search.SearchExtractor
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeChannelLinkHandlerFactory
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubePlaylistLinkHandlerFactory
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
@@ -51,6 +55,8 @@ import java.io.IOException
  * @param defaultDispatcher parse/mapping dispatcher (Default).
  * @param extractorFactory test seam: `(SearchQueryHandler) -> SearchExtractor`; default delegates to [service].
  * @param playlistExtractorFactory test seam for album detail: `(ListLinkHandler) -> PlaylistExtractor`.
+ * @param channelExtractorFactory test seam for artist detail: `(ListLinkHandler) -> ChannelExtractor`.
+ * @param channelTabExtractorFactory test seam for artist tab fetches: `(ListLinkHandler) -> ChannelTabExtractor`.
  */
 class NewPipeCatalogSource(
     private val service: StreamingService = ServiceList.YouTube,
@@ -58,12 +64,13 @@ class NewPipeCatalogSource(
     private val defaultDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val extractorFactory: ((SearchQueryHandler) -> SearchExtractor)? = null,
     private val playlistExtractorFactory: ((ListLinkHandler) -> PlaylistExtractor)? = null,
+    private val channelExtractorFactory: ((ListLinkHandler) -> ChannelExtractor)? = null,
+    private val channelTabExtractorFactory: ((ListLinkHandler) -> ChannelTabExtractor)? = null,
 ) : CatalogSource {
 
     override suspend fun album(id: SourceId): SwayResult<Album> = albumInternal(id)
 
-    override suspend fun artist(id: SourceId): SwayResult<Artist> =
-        SwayResult.Failure(SwayError.ContentNotFound)
+    override suspend fun artist(id: SourceId): SwayResult<Artist> = artistInternal(id)
 
     override suspend fun catalogPlaylist(id: SourceId): SwayResult<CatalogPlaylist> =
         SwayResult.Failure(SwayError.ContentNotFound)
@@ -231,6 +238,183 @@ class NewPipeCatalogSource(
             }
         } catch (e: Exception) {
             CatalogLog.e("album Unknown: ${e.javaClass.simpleName} ${e.message} id=${id.value.take(20)}", e)
+            SwayResult.Failure(SwayError.Unknown(e))
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Artist detail — story 3.4 (FR-6 trace: top songs Must, albums/singles Should degraded)
+    // -------------------------------------------------------------------------
+
+    private suspend fun artistInternal(id: SourceId): SwayResult<Artist> = withContext(ioDispatcher) {
+        try { NewPipeInitializer.initIfNeeded() } catch (e: Exception) {
+            CatalogLog.w("artist NewPipe init failed: ${e.javaClass.simpleName} ${e.message}")
+        }
+        try {
+            val rawId = id.value.trim()
+            val factory = YoutubeChannelLinkHandlerFactory.getInstance()
+            val url: String = try {
+                factory.getUrl(rawId)
+            } catch (e: ParsingException) {
+                // Artist ids may be UC channel ids, handles (@name), or browse ids.
+                // Fallback: construct generic channel URL for UC ids, or music browse for others.
+                when {
+                    rawId.startsWith("UC") -> "https://www.youtube.com/channel/$rawId"
+                    rawId.startsWith("@") -> "https://www.youtube.com/$rawId"
+                    rawId.startsWith("MPRE") || rawId.startsWith("UC") -> "https://music.youtube.com/browse/$rawId"
+                    else -> throw e
+                }
+            }
+            val linkHandler = try {
+                factory.fromUrl(url)
+            } catch (e: ParsingException) {
+                CatalogLog.w("artist invalid id shape: $rawId ${e.message?.take(120)}")
+                return@withContext SwayResult.Failure(SwayError.Parse(shapeInfo = "artist invalid id: $rawId".take(500)))
+            }
+
+            val channelExtractor = channelExtractorFactory?.invoke(linkHandler) ?: service.getChannelExtractor(linkHandler)
+            channelExtractor.fetchPage()
+
+            val name: String = try {
+                channelExtractor.name
+            } catch (e: ParsingException) {
+                val shape = "artist Parse name: ${e.message?.take(300)} id=$rawId"
+                CatalogLog.w(shape)
+                return@withContext SwayResult.Failure(SwayError.Parse(shapeInfo = shape.take(500)))
+            }
+
+            val avatarImages: List<Image> = try { channelExtractor.avatars } catch (_: Exception) { emptyList() }
+
+            // Tabs drive discography discovery; degraded tier => no tabs means unavailable.
+            val tabs: List<ListLinkHandler> = try {
+                channelExtractor.tabs ?: emptyList()
+            } catch (_: Exception) { emptyList() }
+
+            // Collect raw items for mapping on Default dispatcher.
+            // We fetch each tab's initial page best-effort; failures mark that section unavailable
+            // rather than failing the whole artist.
+            val topSongCandidates = mutableListOf<StreamInfoItem>()
+            var albumItems: MutableList<PlaylistInfoItem>? = null
+            var singleItems: MutableList<PlaylistInfoItem>? = null
+
+            if (tabs.isNotEmpty()) {
+                for (tabHandler in tabs) {
+                    val tabExtractor: ChannelTabExtractor = try {
+                        channelTabExtractorFactory?.invoke(tabHandler) ?: service.getChannelTabExtractor(tabHandler)
+                    } catch (e: Exception) {
+                        CatalogLog.w("artist tab extractor creation failed for ${tabHandler.url}: ${e.javaClass.simpleName}")
+                        continue
+                    }
+                    val tabPage = try {
+                        tabExtractor.fetchPage()
+                        tabExtractor.initialPage
+                    } catch (e: ReCaptchaException) {
+                        throw e
+                    } catch (e: IOException) {
+                        throw e
+                    } catch (e: Exception) {
+                        CatalogLog.w("artist tab fetch failed for ${tabHandler.url}: ${e.javaClass.simpleName} ${e.message?.take(120)}")
+                        continue
+                    }
+                    val items = tabPage.items ?: emptyList()
+                    if (items.isEmpty()) continue
+                    val first = items.firstOrNull() ?: continue
+                    when {
+                        first is StreamInfoItem -> {
+                            // Top songs: preserve insertion order across tabs (first tab wins as primary)
+                            if (topSongCandidates.isEmpty()) {
+                                topSongCandidates.addAll(items.filterIsInstance<StreamInfoItem>())
+                            } else {
+                                // Additional stream tabs appended but not duplicated — keep first tab primary
+                                CatalogLog.w("artist additional StreamInfo tab ignored for topSongs (primary already filled)")
+                            }
+                        }
+                        first is PlaylistInfoItem -> {
+                            val tabUrl = tabHandler.url ?: ""
+                            val isSingles = tabUrl.contains("single", ignoreCase = true) || tabUrl.contains("singles", ignoreCase = true)
+                            if (isSingles) {
+                                if (singleItems == null) singleItems = mutableListOf()
+                                singleItems!!.addAll(items.filterIsInstance<PlaylistInfoItem>())
+                            } else {
+                                if (albumItems == null) albumItems = mutableListOf()
+                                albumItems!!.addAll(items.filterIsInstance<PlaylistInfoItem>())
+                            }
+                        }
+                        else -> {
+                            CatalogLog.w("artist tab with unknown InfoItem type ${first.javaClass.simpleName} url=${tabHandler.url}")
+                        }
+                    }
+                    // Log per-tab extractor errors
+                    val errs = tabPage.errors
+                    if (!errs.isNullOrEmpty()) {
+                        CatalogLog.w("artist tab extractor reported ${errs.size} errors for ${tabHandler.url}: ${errs.first().message?.take(200)}")
+                    }
+                }
+            } else {
+                // No tabs: degraded path — if extractor itself exposes no discography, we treat
+                // albums/singles as unavailable (null) and top songs stays empty unless
+                // the test double provided data via a custom path. For live sources that don't
+                // expose tabs (e.g., music topic channels behind different endpoint), this is
+                // correct degraded behavior.
+                CatalogLog.w("artist no tabs for $rawId — discography unavailable (OQ-1 degraded)")
+            }
+
+            // If top songs still empty and tabs were empty, we allow empty list (will still be Success
+            // but caller sees empty topSongs). Fixture contract expects playable non-empty when payload present;
+            // empty here reflects degraded/no-song case — still Success with empty list, not Failure.
+            // Mapping on Default dispatcher
+            val artist: Artist? = withContext(defaultDispatcher) {
+                ArtistMappers.toArtist(
+                    artistId = rawId,
+                    rawName = name,
+                    avatarImages = avatarImages,
+                    topSongItems = topSongCandidates,
+                    albumItems = albumItems, // null => unavailable
+                    singleItems = singleItems,
+                )
+            }
+
+            if (artist == null) {
+                CatalogLog.w("artist mapper returned null for id=$rawId name=${name.take(40)} — blank id law")
+                return@withContext SwayResult.Failure(SwayError.ContentNotFound)
+            }
+
+            SwayResult.Success(artist)
+        } catch (e: ReCaptchaException) {
+            CatalogLog.w("artist RateLimited (429): ${e.message?.take(120)} id=${id.value.take(20)}")
+            SwayResult.Failure(SwayError.RateLimited)
+        } catch (e: IOException) {
+            val msg = e.message ?: ""
+            if (msg.contains("exceeds 10MB", ignoreCase = true) || msg.contains("exceeds limit", ignoreCase = true)) {
+                CatalogLog.w("artist UpstreamUnavailable (oversized): $msg")
+                return@withContext SwayResult.Failure(SwayError.UpstreamUnavailable)
+            }
+            val isOffline = msg.contains("Unable to resolve host", true) ||
+                msg.contains("Failed to connect", true) ||
+                e is java.net.UnknownHostException ||
+                e is java.net.ConnectException ||
+                e.cause is java.net.UnknownHostException
+            if (isOffline) {
+                CatalogLog.w("artist Offline IOException: ${e.javaClass.simpleName} ${msg.take(120)}")
+                SwayResult.Failure(SwayError.Offline)
+            } else {
+                CatalogLog.w("artist Upstream IOException: ${e.javaClass.simpleName} ${msg.take(200)}")
+                SwayResult.Failure(SwayError.UpstreamUnavailable)
+            }
+        } catch (e: ParsingException) {
+            val shape = "artist Parse: ${e.javaClass.simpleName} ${e.message?.take(300)} id=${id.value.take(20)}"
+            CatalogLog.w(shape)
+            SwayResult.Failure(SwayError.Parse(shapeInfo = shape.take(500)))
+        } catch (e: ExtractionException) {
+            val shape = "artist Extraction: ${e.javaClass.simpleName} ${e.message?.take(300)} id=${id.value.take(20)}"
+            CatalogLog.w(shape)
+            if (e.javaClass.simpleName.contains("NotFound", true) || e.message?.contains("not found", true) == true) {
+                SwayResult.Failure(SwayError.ContentNotFound)
+            } else {
+                SwayResult.Failure(SwayError.Parse(shapeInfo = shape.take(500)))
+            }
+        } catch (e: Exception) {
+            CatalogLog.e("artist Unknown: ${e.javaClass.simpleName} ${e.message} id=${id.value.take(20)}", e)
             SwayResult.Failure(SwayError.Unknown(e))
         }
     }

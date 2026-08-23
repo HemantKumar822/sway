@@ -14,6 +14,10 @@ data class Artist private constructor(
     val rawName: String,
     val artwork: ArtworkRef?,
     val topSongs: List<Song> = emptyList(),
+    val albums: List<Album> = emptyList(),
+    val singles: List<Album> = emptyList(),
+    val albumsAvailable: Boolean = false,
+    val singlesAvailable: Boolean = false,
 ) {
     companion object {
         fun create(
@@ -21,10 +25,24 @@ data class Artist private constructor(
             rawName: String,
             artwork: ArtworkRef? = null,
             topSongs: List<Song> = emptyList(),
+            albums: List<Album> = emptyList(),
+            singles: List<Album> = emptyList(),
+            albumsAvailable: Boolean = false,
+            singlesAvailable: Boolean = false,
         ): Artist? {
             val sourceId = SourceId.parse(id) ?: return null
             val displayName = TitleSanitization.sanitize(rawName)
-            return Artist(sourceId, displayName, rawName, artwork, topSongs.toList())
+            return Artist(
+                sourceId,
+                displayName,
+                rawName,
+                artwork,
+                topSongs.toList(),
+                albums.toList(),
+                singles.toList(),
+                albumsAvailable,
+                singlesAvailable,
+            )
         }
 
         fun createTyped(
@@ -32,9 +50,23 @@ data class Artist private constructor(
             rawName: String,
             artwork: ArtworkRef? = null,
             topSongs: List<Song> = emptyList(),
+            albums: List<Album> = emptyList(),
+            singles: List<Album> = emptyList(),
+            albumsAvailable: Boolean = false,
+            singlesAvailable: Boolean = false,
         ): Artist {
             val displayName = TitleSanitization.sanitize(rawName)
-            return Artist(id, displayName, rawName, artwork, topSongs.toList())
+            return Artist(
+                id,
+                displayName,
+                rawName,
+                artwork,
+                topSongs.toList(),
+                albums.toList(),
+                singles.toList(),
+                albumsAvailable,
+                singlesAvailable,
+            )
         }
     }
 }
