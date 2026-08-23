@@ -176,3 +176,72 @@ Every FR-1..40 and NFR-1..10 has exactly one completing epic/story (see epics-an
 
 ## Action items
 (none — created by retrospectives)
+
+## GitHub issue map
+
+Imported 2026-08-23 via gh CLI into HemantKumar822/sway. One issue per story; epics are tracked as milestones E1-E15. Audit manifest: `_bmad-output/implementation-artifacts/github-import-manifest.json`.
+
+| Story | Issue |
+|---|---|
+| 1.1 | https://github.com/HemantKumar822/sway/issues/1 |
+| 1.2 | https://github.com/HemantKumar822/sway/issues/2 |
+| 1.3 | https://github.com/HemantKumar822/sway/issues/3 |
+| 2.1 | https://github.com/HemantKumar822/sway/issues/4 |
+| 2.2 | https://github.com/HemantKumar822/sway/issues/5 |
+| 2.3 | https://github.com/HemantKumar822/sway/issues/6 |
+| 2.4 | https://github.com/HemantKumar822/sway/issues/7 |
+| 3.1 | https://github.com/HemantKumar822/sway/issues/8 |
+| 3.2 | https://github.com/HemantKumar822/sway/issues/9 |
+| 3.3 | https://github.com/HemantKumar822/sway/issues/10 |
+| 3.4 | https://github.com/HemantKumar822/sway/issues/11 |
+| 3.5 | https://github.com/HemantKumar822/sway/issues/12 |
+| 3.6 | https://github.com/HemantKumar822/sway/issues/13 |
+| 4.1 | https://github.com/HemantKumar822/sway/issues/14 |
+| 4.2 | https://github.com/HemantKumar822/sway/issues/15 |
+| 4.3 | https://github.com/HemantKumar822/sway/issues/16 |
+| 4.4 | https://github.com/HemantKumar822/sway/issues/17 |
+| 5.1 | https://github.com/HemantKumar822/sway/issues/18 |
+| 5.2 | https://github.com/HemantKumar822/sway/issues/19 |
+| 5.3 | https://github.com/HemantKumar822/sway/issues/20 |
+| 5.4 | https://github.com/HemantKumar822/sway/issues/21 |
+| 6.1 | https://github.com/HemantKumar822/sway/issues/22 |
+| 6.2 | https://github.com/HemantKumar822/sway/issues/23 |
+| 6.3 | https://github.com/HemantKumar822/sway/issues/24 |
+| 7.1 | https://github.com/HemantKumar822/sway/issues/25 |
+| 7.2 | https://github.com/HemantKumar822/sway/issues/26 |
+| 7.3 | https://github.com/HemantKumar822/sway/issues/27 |
+| 8.1 | https://github.com/HemantKumar822/sway/issues/28 |
+| 8.2 | https://github.com/HemantKumar822/sway/issues/29 |
+| 8.3 | https://github.com/HemantKumar822/sway/issues/30 |
+| 8.4 | https://github.com/HemantKumar822/sway/issues/31 |
+| 9.1 | https://github.com/HemantKumar822/sway/issues/32 |
+| 9.2 | https://github.com/HemantKumar822/sway/issues/33 |
+| 9.3 | https://github.com/HemantKumar822/sway/issues/34 |
+| 9.4 | https://github.com/HemantKumar822/sway/issues/35 |
+| 9.5 | https://github.com/HemantKumar822/sway/issues/36 |
+| 10.1 | https://github.com/HemantKumar822/sway/issues/37 |
+| 10.2 | https://github.com/HemantKumar822/sway/issues/38 |
+| 10.3 | https://github.com/HemantKumar822/sway/issues/39 |
+| 10.4 | https://github.com/HemantKumar822/sway/issues/40 |
+| 10.5 | https://github.com/HemantKumar822/sway/issues/41 |
+| 10.6 | https://github.com/HemantKumar822/sway/issues/42 |
+| 10.7 | https://github.com/HemantKumar822/sway/issues/43 |
+| 10.8 | https://github.com/HemantKumar822/sway/issues/44 |
+| 11.1 | https://github.com/HemantKumar822/sway/issues/45 |
+| 11.2 | https://github.com/HemantKumar822/sway/issues/46 |
+| 11.3 | https://github.com/HemantKumar822/sway/issues/47 |
+| 11.4 | https://github.com/HemantKumar822/sway/issues/48 |
+| 12.1 | https://github.com/HemantKumar822/sway/issues/49 |
+| 12.2 | https://github.com/HemantKumar822/sway/issues/50 |
+| 12.3 | https://github.com/HemantKumar822/sway/issues/51 |
+| 12.4 | https://github.com/HemantKumar822/sway/issues/52 |
+| 13.1 | https://github.com/HemantKumar822/sway/issues/53 |
+| 13.2 | https://github.com/HemantKumar822/sway/issues/54 |
+| 14.1 | https://github.com/HemantKumar822/sway/issues/55 |
+| 14.2 | https://github.com/HemantKumar822/sway/issues/56 |
+| 14.3 | https://github.com/HemantKumar822/sway/issues/57 |
+| 14.4 | https://github.com/HemantKumar822/sway/issues/58 |
+| 14.5 | https://github.com/HemantKumar822/sway/issues/59 |
+| 15.1 | https://github.com/HemantKumar822/sway/issues/60 |
+| 15.2 | https://github.com/HemantKumar822/sway/issues/61 |
+| 15.3 | https://github.com/HemantKumar822/sway/issues/62 |

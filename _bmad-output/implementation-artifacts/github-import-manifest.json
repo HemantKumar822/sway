@@ -1,0 +1,1104 @@
+[
+    {
+        "storyId":  "1.1",
+        "epicId":  "E1",
+        "title":  "Gradle workspace \u0026 seven-module skeleton",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:scaffold"
+                   ],
+        "milestone":  "E1 - Workspace \u0026 Quality Gates",
+        "dependsOn":  [
+
+                      ],
+        "completes":  [
+                          "NFR-7/8 substrate (AR-1, AR-13)"
+                      ]
+    },
+    {
+        "storyId":  "1.2",
+        "epicId":  "E1",
+        "title":  "Hilt graph \u0026 startup hygiene",
+        "points":  2,
+        "labels":  [
+                       "type:story",
+                       "area:scaffold"
+                   ],
+        "milestone":  "E1 - Workspace \u0026 Quality Gates",
+        "dependsOn":  [
+                          "1.1"
+                      ],
+        "completes":  [
+                          "traces AR-3, AR-9, NFR-1 substrate"
+                      ]
+    },
+    {
+        "storyId":  "1.3",
+        "epicId":  "E1",
+        "title":  "Mechanical law CI",
+        "points":  2,
+        "labels":  [
+                       "type:story",
+                       "area:scaffold"
+                   ],
+        "milestone":  "E1 - Workspace \u0026 Quality Gates",
+        "dependsOn":  [
+                          "1.1"
+                      ],
+        "completes":  [
+                          "NFR-7, NFR-8"
+                      ]
+    },
+    {
+        "storyId":  "2.1",
+        "epicId":  "E2",
+        "title":  "Catalog models \u0026 identity law",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:domain"
+                   ],
+        "milestone":  "E2 - Domain Model \u0026 Ports",
+        "dependsOn":  [
+                          "1.1"
+                      ],
+        "completes":  [
+                          "AR-8 blank-id law"
+                      ]
+    },
+    {
+        "storyId":  "2.2",
+        "epicId":  "E2",
+        "title":  "SwayResult \u0026 SwayError taxonomy",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:domain"
+                   ],
+        "milestone":  "E2 - Domain Model \u0026 Ports",
+        "dependsOn":  [
+                          "1.1"
+                      ],
+        "completes":  [
+                          "NFR-2 substrate"
+                      ]
+    },
+    {
+        "storyId":  "2.3",
+        "epicId":  "E2",
+        "title":  "ArtworkRef \u0026 candidate chain",
+        "points":  2,
+        "labels":  [
+                       "type:story",
+                       "area:domain"
+                   ],
+        "milestone":  "E2 - Domain Model \u0026 Ports",
+        "dependsOn":  [
+                          "1.1"
+                      ],
+        "completes":  [
+                          "FR-35/36 substrate"
+                      ]
+    },
+    {
+        "storyId":  "2.4",
+        "epicId":  "E2",
+        "title":  "Ports \u0026 playback vocabulary",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:domain"
+                   ],
+        "milestone":  "E2 - Domain Model \u0026 Ports",
+        "dependsOn":  [
+                          "2.1",
+                          "2.2"
+                      ],
+        "completes":  [
+                          "CatalogSource + StreamResolver ports"
+                      ]
+    },
+    {
+        "storyId":  "3.1",
+        "epicId":  "E3",
+        "title":  "Extractor bootstrap \u0026 OkHttp downloader",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:catalog"
+                   ],
+        "milestone":  "E3 - Catalog Adapter - NewPipe Behind Ports",
+        "dependsOn":  [
+                          "1.1",
+                          "2.2"
+                      ],
+        "completes":  [
+                          "AR-2, AR-4"
+                      ]
+    },
+    {
+        "storyId":  "3.2",
+        "epicId":  "E3",
+        "title":  "Four-type search mappers",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:catalog"
+                   ],
+        "milestone":  "E3 - Catalog Adapter - NewPipe Behind Ports",
+        "dependsOn":  [
+                          "3.1"
+                      ],
+        "completes":  [
+                          "trace FR-1 data side"
+                      ]
+    },
+    {
+        "storyId":  "3.3",
+        "epicId":  "E3",
+        "title":  "Album detail mapper",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:catalog"
+                   ],
+        "milestone":  "E3 - Catalog Adapter - NewPipe Behind Ports",
+        "dependsOn":  [
+                          "3.1"
+                      ],
+        "completes":  [
+                          "trace FR-5 data side"
+                      ]
+    },
+    {
+        "storyId":  "3.4",
+        "epicId":  "E3",
+        "title":  "Artist detail mapper",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:catalog"
+                   ],
+        "milestone":  "E3 - Catalog Adapter - NewPipe Behind Ports",
+        "dependsOn":  [
+                          "3.1"
+                      ],
+        "completes":  [
+                          "trace FR-6 data side"
+                      ]
+    },
+    {
+        "storyId":  "3.5",
+        "epicId":  "E3",
+        "title":  "Catalog Playlist detail mapper",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:catalog"
+                   ],
+        "milestone":  "E3 - Catalog Adapter - NewPipe Behind Ports",
+        "dependsOn":  [
+                          "3.1"
+                      ],
+        "completes":  [
+                          "trace FR-7 data side"
+                      ]
+    },
+    {
+        "storyId":  "3.6",
+        "epicId":  "E3",
+        "title":  "NewPipeStreamResolver",
+        "points":  8,
+        "labels":  [
+                       "type:story",
+                       "area:catalog"
+                   ],
+        "milestone":  "E3 - Catalog Adapter - NewPipe Behind Ports",
+        "dependsOn":  [
+                          "3.1",
+                          "2.4"
+                      ],
+        "completes":  [
+                          "C-5/C-6 substrate",
+                          "FR-15 selection rule"
+                      ]
+    },
+    {
+        "storyId":  "4.1",
+        "epicId":  "E4",
+        "title":  "SwayPlaybackService skeleton",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:playback"
+                   ],
+        "milestone":  "E4 - Playback Engine - One-Song Core Loop",
+        "dependsOn":  [
+                          "1.1"
+                      ],
+        "completes":  [
+                          "NFR-10 contribution"
+                      ]
+    },
+    {
+        "storyId":  "4.2",
+        "epicId":  "E4",
+        "title":  "PlayerConnection facade \u0026 PlayerUiState",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:playback"
+                   ],
+        "milestone":  "E4 - Playback Engine - One-Song Core Loop",
+        "dependsOn":  [
+                          "4.1"
+                      ],
+        "completes":  [
+                          "FR-27 sync substrate"
+                      ]
+    },
+    {
+        "storyId":  "4.3",
+        "epicId":  "E4",
+        "title":  "Queue builder \u0026 placeholder scheme",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:playback"
+                   ],
+        "milestone":  "E4 - Playback Engine - One-Song Core Loop",
+        "dependsOn":  [
+                          "2.4",
+                          "4.2"
+                      ],
+        "completes":  [
+                          "FR-22 semantics substrate"
+                      ]
+    },
+    {
+        "storyId":  "4.4",
+        "epicId":  "E4",
+        "title":  "First-resolve path \u0026 just-in-time transitions",
+        "points":  8,
+        "labels":  [
+                       "type:story",
+                       "area:playback"
+                   ],
+        "milestone":  "E4 - Playback Engine - One-Song Core Loop",
+        "dependsOn":  [
+                          "4.3",
+                          "3.6"
+                      ],
+        "completes":  [
+                          "FR-12",
+                          "FR-8 engine evidence"
+                      ]
+    },
+    {
+        "storyId":  "5.1",
+        "epicId":  "E5",
+        "title":  "Audio-quality preference \u0026 SettingsRepository birth",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:resilience"
+                   ],
+        "milestone":  "E5 - Stream Resilience - Expiry Defense \u0026 Watchdog",
+        "dependsOn":  [
+                          "2.4"
+                      ],
+        "completes":  [
+                          "FR-15 (chip trace 12.4)"
+                      ]
+    },
+    {
+        "storyId":  "5.2",
+        "epicId":  "E5",
+        "title":  "Read-time validation layer",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:resilience"
+                   ],
+        "milestone":  "E5 - Stream Resilience - Expiry Defense \u0026 Watchdog",
+        "dependsOn":  [
+                          "4.4",
+                          "3.6"
+                      ],
+        "completes":  [
+                          "NFR-3 layer 1"
+                      ]
+    },
+    {
+        "storyId":  "5.3",
+        "epicId":  "E5",
+        "title":  "Error-triggered renewal with position resume",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:resilience"
+                   ],
+        "milestone":  "E5 - Stream Resilience - Expiry Defense \u0026 Watchdog",
+        "dependsOn":  [
+                          "5.2"
+                      ],
+        "completes":  [
+                          "FR-13",
+                          "SM-2 suite"
+                      ]
+    },
+    {
+        "storyId":  "5.4",
+        "epicId":  "E5",
+        "title":  "Stalled-playback watchdog",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:resilience"
+                   ],
+        "milestone":  "E5 - Stream Resilience - Expiry Defense \u0026 Watchdog",
+        "dependsOn":  [
+                          "4.4"
+                      ],
+        "completes":  [
+                          "FR-14",
+                          "NFR-3 layers complete across 5.2–5.4"
+                      ]
+    },
+    {
+        "storyId":  "6.1",
+        "epicId":  "E6",
+        "title":  "Media notification, lock screen \u0026 background continuity",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:system"
+                   ],
+        "milestone":  "E6 - Background Playback \u0026 System Integration",
+        "dependsOn":  [
+                          "4.1",
+                          "4.2"
+                      ],
+        "completes":  [
+                          "FR-16, FR-17, FR-18"
+                      ]
+    },
+    {
+        "storyId":  "6.2",
+        "epicId":  "E6",
+        "title":  "Audio focus \u0026 route-change compliance",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:system"
+                   ],
+        "milestone":  "E6 - Background Playback \u0026 System Integration",
+        "dependsOn":  [
+                          "4.1"
+                      ],
+        "completes":  [
+                          "FR-19, FR-20"
+                      ]
+    },
+    {
+        "storyId":  "6.3",
+        "epicId":  "E6",
+        "title":  "Recents-swipe posture \u0026 notification permission",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:system"
+                   ],
+        "milestone":  "E6 - Background Playback \u0026 System Integration",
+        "dependsOn":  [
+                          "6.1"
+                      ],
+        "completes":  [
+                          "FR-21 (OQ-5-gated, P-3 default)"
+                      ]
+    },
+    {
+        "storyId":  "7.1",
+        "epicId":  "E7",
+        "title":  "Queue command semantics",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:queue"
+                   ],
+        "milestone":  "E7 - Queue Management \u0026 Playback Session Persistence",
+        "dependsOn":  [
+                          "4.3",
+                          "4.4"
+                      ],
+        "completes":  [
+                          "FR-22/23/24 engine substrate"
+                      ]
+    },
+    {
+        "storyId":  "7.2",
+        "epicId":  "E7",
+        "title":  "Modes persistence",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:queue"
+                   ],
+        "milestone":  "E7 - Queue Management \u0026 Playback Session Persistence",
+        "dependsOn":  [
+                          "7.1",
+                          "5.1"
+                      ],
+        "completes":  [
+                          "FR-11 persistence substrate"
+                      ]
+    },
+    {
+        "storyId":  "7.3",
+        "epicId":  "E7",
+        "title":  "Session persistence \u0026 paused restore",
+        "points":  8,
+        "labels":  [
+                       "type:story",
+                       "area:queue"
+                   ],
+        "milestone":  "E7 - Queue Management \u0026 Playback Session Persistence",
+        "dependsOn":  [
+                          "7.1",
+                          "7.2"
+                      ],
+        "completes":  [
+                          "FR-25",
+                          "Room DB born (migration 1)"
+                      ]
+    },
+    {
+        "storyId":  "8.1",
+        "epicId":  "E8",
+        "title":  "Likes schema \u0026 LibraryRepository",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:data"
+                   ],
+        "milestone":  "E8 - Owned Data Layer - Likes, Playlists, History",
+        "dependsOn":  [
+                          "7.3"
+                      ],
+        "completes":  [
+                          "FR-30 persistence substrate (migration 2)"
+                      ]
+    },
+    {
+        "storyId":  "8.2",
+        "epicId":  "E8",
+        "title":  "Playlists schema \u0026 PlaylistRepository",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:data"
+                   ],
+        "milestone":  "E8 - Owned Data Layer - Likes, Playlists, History",
+        "dependsOn":  [
+                          "8.1"
+                      ],
+        "completes":  [
+                          "FR-31/32 substrate (migration 3)"
+                      ]
+    },
+    {
+        "storyId":  "8.3",
+        "epicId":  "E8",
+        "title":  "History schema, recency upsert \u0026 service-side recording hook",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:data"
+                   ],
+        "milestone":  "E8 - Owned Data Layer - Likes, Playlists, History",
+        "dependsOn":  [
+                          "8.1"
+                      ],
+        "completes":  [
+                          "FR-34 substrate (migration 4)"
+                      ]
+    },
+    {
+        "storyId":  "8.4",
+        "epicId":  "E8",
+        "title":  "Offline Fallback Cache store",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:data"
+                   ],
+        "milestone":  "E8 - Owned Data Layer - Likes, Playlists, History",
+        "dependsOn":  [
+                          "2.2"
+                      ],
+        "completes":  [
+                          "FR-4 substrate",
+                          "C-8"
+                      ]
+    },
+    {
+        "storyId":  "9.1",
+        "epicId":  "E9",
+        "title":  "SwayTheme tokens on M3 Expressive",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:design"
+                   ],
+        "milestone":  "E9 - Design Language \u0026 Navigation Shell",
+        "dependsOn":  [
+                          "1.1"
+                      ],
+        "completes":  [
+                          "UX-DR1–4"
+                      ]
+    },
+    {
+        "storyId":  "9.2",
+        "epicId":  "E9",
+        "title":  "Typed-state kit \u0026 core components",
+        "points":  8,
+        "labels":  [
+                       "type:story",
+                       "area:design"
+                   ],
+        "milestone":  "E9 - Design Language \u0026 Navigation Shell",
+        "dependsOn":  [
+                          "9.1"
+                      ],
+        "completes":  [
+                          "UX-DR5–7, 11, 15",
+                          "FR-37 kit substrate"
+                      ]
+    },
+    {
+        "storyId":  "9.3",
+        "epicId":  "E9",
+        "title":  "Navigation shell",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:design"
+                   ],
+        "milestone":  "E9 - Design Language \u0026 Navigation Shell",
+        "dependsOn":  [
+                          "9.1"
+                      ],
+        "completes":  [
+                          "FR-26"
+                      ]
+    },
+    {
+        "storyId":  "9.4",
+        "epicId":  "E9",
+        "title":  "Startup law \u0026 offline launch routing",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:design"
+                   ],
+        "milestone":  "E9 - Design Language \u0026 Navigation Shell",
+        "dependsOn":  [
+                          "9.3"
+                      ],
+        "completes":  [
+                          "NFR-1",
+                          "FR-38 substrate"
+                      ]
+    },
+    {
+        "storyId":  "9.5",
+        "epicId":  "E9",
+        "title":  "Home Search-first landing",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:design"
+                   ],
+        "milestone":  "E9 - Design Language \u0026 Navigation Shell",
+        "dependsOn":  [
+                          "9.4",
+                          "8.1"
+                      ],
+        "completes":  [
+                          "FR-3 (degraded branch per OQ-1)"
+                      ]
+    },
+    {
+        "storyId":  "10.1",
+        "epicId":  "E10",
+        "title":  "CatalogRepository \u0026 fallback integration",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:discovery"
+                   ],
+        "milestone":  "E10 - Discovery - Search \u0026 Catalog Details",
+        "dependsOn":  [
+                          "3.2–3.5",
+                          "8.4"
+                      ],
+        "completes":  [
+                          "NFR-2 pattern exemplar"
+                      ]
+    },
+    {
+        "storyId":  "10.2",
+        "epicId":  "E10",
+        "title":  "Search screen core",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:discovery"
+                   ],
+        "milestone":  "E10 - Discovery - Search \u0026 Catalog Details",
+        "dependsOn":  [
+                          "10.1",
+                          "9.2",
+                          "9.3"
+                      ],
+        "completes":  [
+                          "FR-1"
+                      ]
+    },
+    {
+        "storyId":  "10.3",
+        "epicId":  "E10",
+        "title":  "Search pagination",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:discovery"
+                   ],
+        "milestone":  "E10 - Discovery - Search \u0026 Catalog Details",
+        "dependsOn":  [
+                          "10.2"
+                      ],
+        "completes":  [
+                          "FR-2"
+                      ]
+    },
+    {
+        "storyId":  "10.4",
+        "epicId":  "E10",
+        "title":  "Offline/stale search UX",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:discovery"
+                   ],
+        "milestone":  "E10 - Discovery - Search \u0026 Catalog Details",
+        "dependsOn":  [
+                          "10.2"
+                      ],
+        "completes":  [
+                          "FR-4"
+                      ]
+    },
+    {
+        "storyId":  "10.5",
+        "epicId":  "E10",
+        "title":  "Album detail screen",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:discovery"
+                   ],
+        "milestone":  "E10 - Discovery - Search \u0026 Catalog Details",
+        "dependsOn":  [
+                          "10.1"
+                      ],
+        "completes":  [
+                          "FR-5"
+                      ]
+    },
+    {
+        "storyId":  "10.6",
+        "epicId":  "E10",
+        "title":  "Artist detail screen",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:discovery"
+                   ],
+        "milestone":  "E10 - Discovery - Search \u0026 Catalog Details",
+        "dependsOn":  [
+                          "10.1"
+                      ],
+        "completes":  [
+                          "FR-6"
+                      ]
+    },
+    {
+        "storyId":  "10.7",
+        "epicId":  "E10",
+        "title":  "Catalog Playlist detail screen",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:discovery"
+                   ],
+        "milestone":  "E10 - Discovery - Search \u0026 Catalog Details",
+        "dependsOn":  [
+                          "10.1"
+                      ],
+        "completes":  [
+                          "FR-7"
+                      ]
+    },
+    {
+        "storyId":  "10.8",
+        "epicId":  "E10",
+        "title":  "Song context menu",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:discovery"
+                   ],
+        "milestone":  "E10 - Discovery - Search \u0026 Catalog Details",
+        "dependsOn":  [
+                          "10.2",
+                          "7.1",
+                          "8.1",
+                          "8.2"
+                      ],
+        "completes":  [
+                          "FR-24 menu surface trace",
+                          "FR-30 toggle trace"
+                      ]
+    },
+    {
+        "storyId":  "11.1",
+        "epicId":  "E11",
+        "title":  "Liked Songs screen",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:library"
+                   ],
+        "milestone":  "E11 - Library Surfaces \u0026 Collection Editing",
+        "dependsOn":  [
+                          "8.1",
+                          "9.2"
+                      ],
+        "completes":  [
+                          "FR-30 collection surface (sync completes 12.2)"
+                      ]
+    },
+    {
+        "storyId":  "11.2",
+        "epicId":  "E11",
+        "title":  "Play History screen",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:library"
+                   ],
+        "milestone":  "E11 - Library Surfaces \u0026 Collection Editing",
+        "dependsOn":  [
+                          "8.3",
+                          "9.2"
+                      ],
+        "completes":  [
+                          "FR-34"
+                      ]
+    },
+    {
+        "storyId":  "11.3",
+        "epicId":  "E11",
+        "title":  "Playlist detail \u0026 editor",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:library"
+                   ],
+        "milestone":  "E11 - Library Surfaces \u0026 Collection Editing",
+        "dependsOn":  [
+                          "8.2",
+                          "9.2",
+                          "10.8"
+                      ],
+        "completes":  [
+                          "FR-32"
+                      ]
+    },
+    {
+        "storyId":  "11.4",
+        "epicId":  "E11",
+        "title":  "Library hub aggregation",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:library"
+                   ],
+        "milestone":  "E11 - Library Surfaces \u0026 Collection Editing",
+        "dependsOn":  [
+                          "11.1–11.3"
+                      ],
+        "completes":  [
+                          "FR-31, FR-33"
+                      ]
+    },
+    {
+        "storyId":  "12.1",
+        "epicId":  "E12",
+        "title":  "Mini Player global layer",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:player-ui"
+                   ],
+        "milestone":  "E12 - Player Surfaces - Mini, Full, Queue Sheet",
+        "dependsOn":  [
+                          "7.3",
+                          "9.3",
+                          "4.2"
+                      ],
+        "completes":  [
+                          "FR-27"
+                      ]
+    },
+    {
+        "storyId":  "12.2",
+        "epicId":  "E12",
+        "title":  "Full Player",
+        "points":  8,
+        "labels":  [
+                       "type:story",
+                       "area:player-ui"
+                   ],
+        "milestone":  "E12 - Player Surfaces - Mini, Full, Queue Sheet",
+        "dependsOn":  [
+                          "12.1",
+                          "7.1",
+                          "7.2",
+                          "8.1"
+                      ],
+        "completes":  [
+                          "FR-9, FR-10, FR-11, FR-28, FR-30"
+                      ]
+    },
+    {
+        "storyId":  "12.3",
+        "epicId":  "E12",
+        "title":  "Queue sheet",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:player-ui"
+                   ],
+        "milestone":  "E12 - Player Surfaces - Mini, Full, Queue Sheet",
+        "dependsOn":  [
+                          "12.1",
+                          "12.2",
+                          "7.1"
+                      ],
+        "completes":  [
+                          "FR-23, FR-24"
+                      ]
+    },
+    {
+        "storyId":  "12.4",
+        "epicId":  "E12",
+        "title":  "Cross-surface wiring \u0026 quality presentation",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:player-ui"
+                   ],
+        "milestone":  "E12 - Player Surfaces - Mini, Full, Queue Sheet",
+        "dependsOn":  [
+                          "10.x",
+                          "11.x",
+                          "12.1–12.3"
+                      ],
+        "completes":  [
+                          "FR-8, FR-22",
+                          "FR-15 chip (OQ-6 flag)"
+                      ]
+    },
+    {
+        "storyId":  "13.1",
+        "epicId":  "E13",
+        "title":  "Image pipeline, caching \u0026 placeholder stability",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:artwork"
+                   ],
+        "milestone":  "E13 - Artwork System \u0026 Visual Atmosphere",
+        "dependsOn":  [
+                          "2.3",
+                          "9.2"
+                      ],
+        "completes":  [
+                          "FR-35, FR-36"
+                      ]
+    },
+    {
+        "storyId":  "13.2",
+        "epicId":  "E13",
+        "title":  "Extraction, scrim engine \u0026 atmosphere",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:artwork"
+                   ],
+        "milestone":  "E13 - Artwork System \u0026 Visual Atmosphere",
+        "dependsOn":  [
+                          "13.1",
+                          "12.2"
+                      ],
+        "completes":  [
+                          "NFR-5"
+                      ]
+    },
+    {
+        "storyId":  "14.1",
+        "epicId":  "E14",
+        "title":  "Surface × failure audit",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:hardening"
+                   ],
+        "milestone":  "E14 - Honesty Pass - Typed States, Offline \u0026 Hardening",
+        "dependsOn":  [
+                          "E10–E13"
+                      ],
+        "completes":  [
+                          "FR-37, NFR-2"
+                      ]
+    },
+    {
+        "storyId":  "14.2",
+        "epicId":  "E14",
+        "title":  "Offline mode end-to-end",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:hardening"
+                   ],
+        "milestone":  "E14 - Honesty Pass - Typed States, Offline \u0026 Hardening",
+        "dependsOn":  [
+                          "14.1"
+                      ],
+        "completes":  [
+                          "FR-38"
+                      ]
+    },
+    {
+        "storyId":  "14.3",
+        "epicId":  "E14",
+        "title":  "Continuity \u0026 resource soak suites",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:hardening"
+                   ],
+        "milestone":  "E14 - Honesty Pass - Typed States, Offline \u0026 Hardening",
+        "dependsOn":  [
+                          "E12/E13"
+                      ],
+        "completes":  [
+                          "NFR-4, NFR-10"
+                      ]
+    },
+    {
+        "storyId":  "14.4",
+        "epicId":  "E14",
+        "title":  "Performance budget gate",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:hardening"
+                   ],
+        "milestone":  "E14 - Honesty Pass - Typed States, Offline \u0026 Hardening",
+        "dependsOn":  [
+                          "E12/E13",
+                          "9.4"
+                      ],
+        "completes":  [
+                          "NFR-6",
+                          "NFR-1 regression"
+                      ]
+    },
+    {
+        "storyId":  "14.5",
+        "epicId":  "E14",
+        "title":  "Adaptive compliance matrix",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:hardening"
+                   ],
+        "milestone":  "E14 - Honesty Pass - Typed States, Offline \u0026 Hardening",
+        "dependsOn":  [
+                          "E10–E12"
+                      ],
+        "completes":  [
+                          "FR-29"
+                      ]
+    },
+    {
+        "storyId":  "15.1",
+        "epicId":  "E15",
+        "title":  "Settings screen",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:release"
+                   ],
+        "milestone":  "E15 - Settings, About \u0026 Release Readiness",
+        "dependsOn":  [
+                          "9.3",
+                          "5.1"
+                      ],
+        "completes":  [
+                          "FR-39"
+                      ]
+    },
+    {
+        "storyId":  "15.2",
+        "epicId":  "E15",
+        "title":  "About \u0026 licenses",
+        "points":  3,
+        "labels":  [
+                       "type:story",
+                       "area:release"
+                   ],
+        "milestone":  "E15 - Settings, About \u0026 Release Readiness",
+        "dependsOn":  [
+                          "15.1"
+                      ],
+        "completes":  [
+                          "FR-40"
+                      ]
+    },
+    {
+        "storyId":  "15.3",
+        "epicId":  "E15",
+        "title":  "Release readiness gate",
+        "points":  5,
+        "labels":  [
+                       "type:story",
+                       "area:release"
+                   ],
+        "milestone":  "E15 - Settings, About \u0026 Release Readiness",
+        "dependsOn":  [
+                          "14.x records",
+                          "15.2"
+                      ],
+        "completes":  [
+                          "NFR-9",
+                          "SM-1/SM-2 evidence pack",
+                          "OQ-7 owner action"
+                      ]
+    }
+]
