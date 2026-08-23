@@ -43,7 +43,7 @@ epic-1-retrospective: optional
 | ID | Title | Pts | Deps | Completes | Status |
 |---|---|---|---|---|---|
 | 2.1 | Catalog models & identity law | 3 | 1.1 | AR-8 blank-id law | done |
-| 2.2 | SwayResult & SwayError taxonomy | 3 | 1.1 | NFR-2 substrate | todo |
+| 2.2 | SwayResult & SwayError taxonomy | 3 | 1.1 | NFR-2 substrate | done |
 | 2.3 | ArtworkRef & candidate chain | 2 | 1.1 | FR-35/36 substrate | todo |
 | 2.4 | Ports & playback vocabulary | 3 | 2.1, 2.2 | CatalogSource + StreamResolver ports | todo |
 epic-2-retrospective: optional
@@ -174,6 +174,7 @@ Every FR-1..40 and NFR-1..10 has exactly one completing epic/story (see epics-an
 ## Evidence log
 (appended by the implementation agent; one line per completed story)
 - 2.1 done — :core:model pure-Kotlin compileKotlin + 65 JVM tests green (SourceId/DurationMs/ArtworkRef/Song/Album/Artist/CatalogPlaylist/Playlist/title), zero Android imports, AR-8 blank-id law + AR-14 conventions — commit feat(2.1) closes #4
+- 2.2 done — :core:model compileKotlin + :core:model:test 95 tests (65 prior + 13 SwayError + 17 SwayResult) green, exhaustive when without else compiles, 7-category AD-9 mapping (SwayError→SwayErrorUiState 1:1), combinators map/onSuccess/onFailure/recoverToState, Unknown cause preserved, failures as values — commit 0a60052 feat(2.2) closes #5
 
 ## Action items
 (none — created by retrospectives)
