@@ -72,8 +72,7 @@ class NewPipeCatalogSource(
 
     override suspend fun artist(id: SourceId): SwayResult<Artist> = artistInternal(id)
 
-    override suspend fun catalogPlaylist(id: SourceId): SwayResult<CatalogPlaylist> =
-        SwayResult.Failure(SwayError.ContentNotFound)
+    override suspend fun catalogPlaylist(id: SourceId): SwayResult<CatalogPlaylist> = catalogPlaylistInternal(id)
 
     // -------------------------------------------------------------------------
     // Search — four groups
@@ -415,6 +414,124 @@ class NewPipeCatalogSource(
             }
         } catch (e: Exception) {
             CatalogLog.e("artist Unknown: ${e.javaClass.simpleName} ${e.message} id=${id.value.take(20)}", e)
+            SwayResult.Failure(SwayError.Unknown(e))
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Catalog Playlist detail — story 3.5 (FR-7 trace: curator/count/ordered tracks, read-only)
+    // -------------------------------------------------------------------------
+
+    private suspend fun catalogPlaylistInternal(id: SourceId): SwayResult<CatalogPlaylist> = withContext(ioDispatcher) {
+        try { NewPipeInitializer.initIfNeeded() } catch (e: Exception) {
+            CatalogLog.w("catalogPlaylist NewPipe init failed: ${e.javaClass.simpleName} ${e.message}")
+        }
+        try {
+            val rawId = id.value.trim()
+            val factory = YoutubePlaylistLinkHandlerFactory.getInstance()
+            val url: String = try {
+                factory.getUrl(rawId)
+            } catch (e: ParsingException) {
+                // Playlist ids: PL..., OLAK5uy..., RD..., VL..., MPREb_... handled via factory; fallback to generic browse.
+                if (rawId.startsWith("PL") || rawId.startsWith("OLAK") || rawId.startsWith("VL") ||
+                    rawId.startsWith("RD") || rawId.startsWith("MPRE") || rawId.startsWith("UU")
+                ) {
+                    "https://music.youtube.com/playlist?list=$rawId"
+                } else {
+                    throw e
+                }
+            }
+            val linkHandler = try {
+                factory.fromUrl(url)
+            } catch (e: ParsingException) {
+                CatalogLog.w("catalogPlaylist invalid id shape: $rawId ${e.message?.take(120)}")
+                return@withContext SwayResult.Failure(SwayError.Parse(shapeInfo = "catalogPlaylist invalid id: $rawId".take(500)))
+            }
+
+            val extractor = playlistExtractorFactory?.invoke(linkHandler) ?: service.getPlaylistExtractor(linkHandler)
+
+            extractor.fetchPage()
+
+            val name: String = try {
+                extractor.name
+            } catch (e: ParsingException) {
+                val shape = "catalogPlaylist Parse name: ${e.message?.take(300)} id=$rawId"
+                CatalogLog.w(shape)
+                return@withContext SwayResult.Failure(SwayError.Parse(shapeInfo = shape.take(500)))
+            }
+
+            val uploaderName: String? = try { extractor.uploaderName } catch (_: Exception) { null }
+            val thumbs: List<Image> = try { extractor.thumbnails } catch (_: Exception) { emptyList() }
+            val streamCount: Long? = try { extractor.streamCount } catch (_: Exception) { null }
+            val initialPage = try {
+                extractor.initialPage
+            } catch (e: Exception) {
+                val shape = "catalogPlaylist Parse initialPage: ${e.javaClass.simpleName} ${e.message?.take(300)} id=$rawId"
+                CatalogLog.w(shape)
+                return@withContext SwayResult.Failure(SwayError.Parse(shapeInfo = shape.take(500)))
+            }
+
+            val streamItems: List<StreamInfoItem> = initialPage.items ?: emptyList()
+
+            // Map on Default dispatcher (parse/extraction).
+            val playlist: CatalogPlaylist? = withContext(defaultDispatcher) {
+                PlaylistMappers.toCatalogPlaylist(
+                    playlistId = rawId,
+                    rawTitle = name,
+                    curatorName = uploaderName,
+                    rawCount = streamCount,
+                    heroImages = thumbs,
+                    trackItems = streamItems,
+                )
+            }
+
+            if (playlist == null) {
+                CatalogLog.w("catalogPlaylist mapper returned null for id=$rawId name=${name.take(40)} — blank id law")
+                return@withContext SwayResult.Failure(SwayError.ContentNotFound)
+            }
+
+            // Log extractor-side errors if any.
+            val errors = initialPage.errors
+            if (!errors.isNullOrEmpty()) {
+                CatalogLog.w("catalogPlaylist extractor reported ${errors.size} item errors: ${errors.first().message?.take(200)}")
+            }
+
+            SwayResult.Success(playlist)
+        } catch (e: ReCaptchaException) {
+            CatalogLog.w("catalogPlaylist RateLimited (429): ${e.message?.take(120)} id=${id.value.take(20)}")
+            SwayResult.Failure(SwayError.RateLimited)
+        } catch (e: IOException) {
+            val msg = e.message ?: ""
+            if (msg.contains("exceeds 10MB", ignoreCase = true) || msg.contains("exceeds limit", ignoreCase = true)) {
+                CatalogLog.w("catalogPlaylist UpstreamUnavailable (oversized): $msg")
+                return@withContext SwayResult.Failure(SwayError.UpstreamUnavailable)
+            }
+            val isOffline = msg.contains("Unable to resolve host", true) ||
+                msg.contains("Failed to connect", true) ||
+                e is java.net.UnknownHostException ||
+                e is java.net.ConnectException ||
+                e.cause is java.net.UnknownHostException
+            if (isOffline) {
+                CatalogLog.w("catalogPlaylist Offline IOException: ${e.javaClass.simpleName} ${msg.take(120)}")
+                SwayResult.Failure(SwayError.Offline)
+            } else {
+                CatalogLog.w("catalogPlaylist Upstream IOException: ${e.javaClass.simpleName} ${msg.take(200)}")
+                SwayResult.Failure(SwayError.UpstreamUnavailable)
+            }
+        } catch (e: ParsingException) {
+            val shape = "catalogPlaylist Parse: ${e.javaClass.simpleName} ${e.message?.take(300)} id=${id.value.take(20)}"
+            CatalogLog.w(shape)
+            SwayResult.Failure(SwayError.Parse(shapeInfo = shape.take(500)))
+        } catch (e: ExtractionException) {
+            val shape = "catalogPlaylist Extraction: ${e.javaClass.simpleName} ${e.message?.take(300)} id=${id.value.take(20)}"
+            CatalogLog.w(shape)
+            if (e.javaClass.simpleName.contains("NotFound", true) || e.message?.contains("not found", true) == true) {
+                SwayResult.Failure(SwayError.ContentNotFound)
+            } else {
+                SwayResult.Failure(SwayError.Parse(shapeInfo = shape.take(500)))
+            }
+        } catch (e: Exception) {
+            CatalogLog.e("catalogPlaylist Unknown: ${e.javaClass.simpleName} ${e.message} id=${id.value.take(20)}", e)
             SwayResult.Failure(SwayError.Unknown(e))
         }
     }
