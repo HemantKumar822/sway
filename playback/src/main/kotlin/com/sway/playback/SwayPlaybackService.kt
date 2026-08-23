@@ -42,6 +42,10 @@ import kotlinx.coroutines.launch
  * streams invisibly with position resume; the idle self-stop listener is
  * error-aware so an error-driven STATE_IDLE never stops the service while the
  * renewal layer owns recovery.
+ *
+ * Story 5.4 (FR-14/AD-7 layer 3): the engine's stalled-playback watchdog is
+ * ARMED here ([JitResolveEngine.startWatchdog]) on the engine scope — its
+ * ticker lives and dies with this service (no app-wide ticking broadcast).
  */
 class SwayPlaybackService : MediaLibraryService() {
 
@@ -136,6 +140,9 @@ class SwayPlaybackService : MediaLibraryService() {
                 scope = scope,
                 onFailure = { _lastFailure.value = it },
             )
+            // Story 5.4: arm the stalled-playback watchdog on the engine scope
+            // (service lifecycle); ticks gate to no-ops whenever nothing stalls.
+            resolveEngine?.startWatchdog()
         }
 
         librarySession = MediaLibraryService.MediaLibrarySession.Builder(this, player, LibraryCallback())

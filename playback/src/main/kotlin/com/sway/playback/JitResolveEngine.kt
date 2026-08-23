@@ -17,126 +17,11 @@ import com.sway.core.model.SwayError
 import com.sway.core.model.SwayResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-
-/**
- * Pure decision helpers for lazy resolution (story 4.4, FR-12/AR-6), the
- * story 5.2 read-time validation layer (AD-7 defense layer 1, NFR-3) and the
- * story 5.3 error-triggered renewal layer (AD-7 defense layer 2, FR-13) —
- * trivially unit-testable policy extracted from [JitResolveEngine].
- *
- * - [shouldResolveNow] — a URI earns a just-in-time resolve iff it is a
- *   [PendingUri] placeholder (single-owner scheme law, AD-6 rule 6).
- * - [isReadValid] — THE single read-time validity check: any held or freshly
- *   resolved [ResolvedAudio] may be used only while more than
- *   [READ_MARGIN_MS] of lifetime remains at the moment of use. The former
- *   prefetch age cap folded into this one check (no second mechanism).
- * - [isExpiryRetryableSourceError] / [mapPlayerErrorToSwayError] /
- *   [isRenewalEligible] / [clampResumePosition] — layer-2 renewal law:
- *   classify source-class expiry errors, map surfacing categories, gate
- *   eligibility on audible-progress evidence and clamp resume seeks to
- *   [RESUME_TOLERANCE_MS] of the captured position (mechanism restores it
- *   exactly).
- * - [coerceStartIndex] — normalizes session-provided start indices
- *   ([C.INDEX_UNSET], out-of-bounds, empty playlists) to a safe anchor.
- * - [withResolvedUri] — rebuilds a queue item keeping its identity (mediaId)
- *   while swapping the placeholder for the resolved stream URL.
- */
-internal object JitPolicy {
-
-    /**
-     * Read-time validity margin, P-5-tunable initial target (NFR-3 / AD-7
-     * layer 1): a stream URL must outlive "now" by more than this much at the
-     * moment of use, otherwise it is discarded and re-resolved before play.
-     */
-    const val READ_MARGIN_MS: Long = 5L * 60L * 1000L
-
-    /**
-     * Source-class error-code window (story 5.3, FR-13 / AD-7 defense layer 2):
-     * `PlaybackException` codes 2000..2999 cover data-loading failures —
-     * HTTP status errors (`ERROR_CODE_IO_BAD_HTTP_STATUS` = 2004 carries the
-     * 403/410 expired-URL family), file-not-found and network failures — i.e.
-     * exactly the "playback errored anyway after layer 1" class that earns an
-     * invisible renewal. Codes outside the window are fatal for renewal.
-     */
-    const val SOURCE_ERROR_CODE_MIN: Int = 2000
-
-    /** Inclusive upper bound of the source-class window; see [SOURCE_ERROR_CODE_MIN]. */
-    const val SOURCE_ERROR_CODE_MAX: Int = 2999
-
-    /**
-     * Resume tolerance for error-triggered renewal, P-5-tunable initial target
-     * (FR-13 / NFR-3 / SM-2): audible resume must land within this window of
-     * the last audible position. The renewal mechanism restores the captured
-     * position exactly; the bound exists for wall-clock drift in production.
-     */
-    const val RESUME_TOLERANCE_MS: Long = 3_000L
-
-    /**
-     * Renewal budget per SourceId per progress-episode (NFR-3 anti-hot-loop
-     * law): at most this many invalidate+forceRefresh resolve attempts may be
-     * spent on one item before the typed failure surfaces instead. The budget
-     * resets when successful playback progress is observed again.
-     */
-    const val MAX_RENEWALS_PER_EPISODE: Int = 2
-
-    /** True iff [uriString] is a sway pending placeholder needing JIT resolution. */
-    fun shouldResolveNow(uriString: String?): Boolean = PendingUri.isPending(uriString)
-
-    /**
-     * Read-time validation (AD-7 layer 1): [audio] may be used at [nowEpochMs]
-     * only when present AND its own parsed expiry lies further in the future
-     * than [READ_MARGIN_MS]. Entries failing this are discarded and renewed
-     * (invalidate + forceRefresh resolve) BEFORE play.
-     */
-    fun isReadValid(audio: ResolvedAudio?, nowEpochMs: Long): Boolean =
-        audio != null && !audio.isExpiredAt(nowEpochMs, READ_MARGIN_MS)
-
-    /** True iff [errorCode] sits in the retryable source-class expiry window. */
-    fun isExpiryRetryableSourceError(errorCode: Int): Boolean =
-        errorCode in SOURCE_ERROR_CODE_MIN..SOURCE_ERROR_CODE_MAX
-
-    /**
-     * Typed category for a player error surfaced after its renewal budget is
-     * spent (or immediately, when fatal): source-class codes map to
-     * [SwayError.UpstreamUnavailable] (HTTP-status family per AD-9 row 3);
-     * everything else is [SwayError.Unknown] preserving the cause (AR-14).
-     */
-    fun mapPlayerErrorToSwayError(errorCode: Int, cause: Throwable? = null): SwayError =
-        if (isExpiryRetryableSourceError(errorCode)) SwayError.UpstreamUnavailable
-        else SwayError.Unknown(cause)
-
-    /**
-     * Renewal eligibility (story 5.3): renewal is layer 2 for MID-play death,
-     * so audible-progress evidence must exist — either a captured position
-     * beyond the track start or an observed playing state for the item.
-     * Position-0-never-played failures belong to layer 1 / the JIT path /
-     * the 5.4 watchdog backstop, and this filter keeps environmental prepare
-     * noise out of the renewal budget.
-     */
-    fun isRenewalEligible(capturedPositionMs: Long, playingObserved: Boolean): Boolean =
-        capturedPositionMs > 0L || playingObserved
-
-    /** Resume positions are clamped to the track start; never negative. */
-    fun clampResumePosition(positionMs: Long): Long = positionMs.coerceAtLeast(0L)
-
-    /** Safe start anchor: [C.INDEX_UNSET]/out-of-bounds degrade to 0 / last item. */
-    fun coerceStartIndex(startIndex: Int, size: Int): Int {
-        if (size <= 0) return 0
-        if (startIndex < 0 || startIndex >= size) return 0
-        return startIndex
-    }
-
-    /** Same item identity (mediaId/metadata), real stream [url] instead of placeholder. */
-    fun withResolvedUri(original: MediaItem, url: String): MediaItem =
-        original.buildUpon().setUri(url).build()
-
-    /** Raw placeholder-or-real URI string of [item], or null when unconfigured. */
-    fun uriStringOf(item: MediaItem?): String? = item?.localConfiguration?.uri?.toString()
-}
 
 /**
  * Lazy-resolution engine (story 4.4, FR-12 completes here; AR-5/AD-6 rules 3/6).
@@ -181,6 +66,23 @@ internal object JitPolicy {
  * playback progress ([noteSuccessfulProgress]); exhausted budgets surface the
  * typed category instead of resolving; fatal error classes surface immediately
  * with zero renewal attempts; placeholder items stay owned by the JIT path.
+ *
+ * Story 5.4 (AD-7 defense layer 3, FR-14 COMPLETES HERE): streams can die
+ * SILENTLY — the player parks in `STATE_BUFFERING` with `playWhenReady=true`
+ * and a frozen position, and no error ever fires. [startWatchdog] arms a
+ * ticker on the engine scope (service lifecycle); every sample runs
+ * [onWatchdogTick], which gates itself to true stalls (playing intent +
+ * BUFFERING + RESOLVED current item + frozen position + no competing recovery
+ * pipeline) and escalates via the pure [JitPolicy.watchdogAction] ladder:
+ * >[JitPolicy.WATCHDOG_SOFT_STALL_MS] ONE downscale replay at
+ * [JitPolicy.DOWNSCALE_QUALITY]; >[JitPolicy.WATCHDOG_HARD_STALL_MS] full
+ * stream rebuilds up to [JitPolicy.MAX_REBUILDS_PER_EPISODE]; exhausted budget
+ * while still stalled skips to the next queue item and surfaces the typed
+ * category through the shared slot (last item pauses instead — honest stop).
+ * Recovery rides the SAME apply sequence as layer-2 renewal; actions are
+ * spaced >=[JitPolicy.WATCHDOG_ACTION_SPACING_MS]; accounting resets on item
+ * transition and successful progress, so normal gapless transitions never
+ * accrue stall debt.
  *
  * Failures travel as typed values: every resolve failure publishes
  * [FailedTrack] to the injected [onFailure] handler and hoists it on
@@ -240,6 +142,33 @@ internal class JitResolveEngine(
     /** Sticky per-item evidence that audio actually played (survives pause). */
     private var audiblePlayingObserved: Boolean = false
 
+    // --- story 5.4: stalled-playback watchdog state ------------------------------
+
+    /** Production ticker loop (single-flight; cancelled by [release]). */
+    private var watchdogJob: Job? = null
+
+    /** The ONE watchdog recovery pipeline at a time (single-owner law). */
+    @Volatile
+    private var watchdogRecoveryJob: Job? = null
+
+    /** Epoch-ms baseline: when the current freeze window began. */
+    private var stallBaselineMs: Long = 0L
+
+    /** Position observed at the previous sample (progress detector). */
+    private var lastTickPositionMs: Long = Long.MIN_VALUE
+
+    /** Epoch-ms of the most recent escalation action (spacing gate). */
+    private var lastWatchdogActionAtMs: Long = Long.MIN_VALUE
+
+    /** Per-item latch: the soft-tier downscale replay already fired. */
+    private var downgradeAttempted: Boolean = false
+
+    /** Per-item counter: full rebuilds spent this stall episode. */
+    private var rebuildAttempts: Int = 0
+
+    /** mediaId owning the open stall episode (identity-scoped memory). */
+    private var watchdogEpisodeItemId: String? = null
+
     init {
         player.addListener(this)
     }
@@ -248,6 +177,10 @@ internal class JitResolveEngine(
     fun release() {
         if (released) return
         released = true
+        watchdogJob?.cancel()
+        watchdogJob = null
+        watchdogRecoveryJob?.cancel()
+        watchdogRecoveryJob = null
         player.removeListener(this)
     }
 
@@ -369,6 +302,18 @@ internal class JitResolveEngine(
         // A new item must re-earn audible-progress evidence (story 5.3).
         audiblePlayingObserved = false
         lastAudibleProgressMs = 0L
+        val newId = mediaItem?.mediaId
+        if (newId == null || newId != watchdogEpisodeItemId) {
+            // Genuinely different item: fresh ladder (story 5.4 — transition
+            // timing is EXCLUDED from stall accounting, so normal gapless
+            // buffering never accrues debt).
+            resetWatchdogEpisode()
+            watchdogEpisodeItemId = newId
+        }
+        // Same-mediaId transitions are OUR OWN rendition replacements (layer-2
+        // or watchdog swaps): the stall episode CONTINUES — cumulative frozen
+        // time plus the action-spacing gate give the fresh rendition its
+        // observation window without erasing earned escalation memory.
         handlePendingCurrent()
     }
 
@@ -399,6 +344,7 @@ internal class JitResolveEngine(
         }
         if (live > 0L) lastAudibleProgressMs = live
         renewalBudgets.clear()
+        resetWatchdogEpisode()
     }
 
     // --- error-triggered renewal (story 5.3, AD-7 defense layer 2) -----------------
@@ -434,6 +380,10 @@ internal class JitResolveEngine(
             publishFailure(sourceId, JitPolicy.mapPlayerErrorToSwayError(errorCode, cause))
             return
         }
+        // Story 5.4 single-owner law (reverse direction): a watchdog recovery
+        // pipeline owns the current item right now — retryable renewal defers
+        // to its ladder (fatal classes above still surface immediately).
+        if (watchdogRecoveryJob?.isActive == true) return
         val resumePositionMs = captureResumePositionMs()
         if (!JitPolicy.isRenewalEligible(resumePositionMs, audiblePlayingObserved)) return
         if ((renewalBudgets[sourceId] ?: 0) >= JitPolicy.MAX_RENEWALS_PER_EPISODE) {
@@ -537,6 +487,179 @@ internal class JitResolveEngine(
             } catch (_: Exception) {
             }
         }
+    }
+
+    // --- stalled-playback watchdog (story 5.4, AD-7 defense layer 3) ---------------
+
+    /**
+     * Arm the production ticker: samples [onWatchdogTick] every
+     * [JitPolicy.WATCHDOG_TICK_MS] on the engine scope (service lifecycle —
+     * cancelled by [release]; NO app-wide ticking broadcast). Single-flight.
+     * Tests drive [onWatchdogTick] directly with synthetic timestamps instead
+     * of relying on scheduler/virtual-time coupling.
+     */
+    fun startWatchdog() {
+        if (released || watchdogJob?.isActive == true) return
+        watchdogJob = scope.launch {
+            while (!released) {
+                delay(JitPolicy.WATCHDOG_TICK_MS)
+                if (released) break
+                onMainLooper { onWatchdogTick(clock()) }
+            }
+        }
+    }
+
+    /**
+     * One watchdog sample (internal seam; production enters via
+     * [startWatchdog]). Gate order:
+     * 1. released, own recovery in flight, or any layer-2 renewal in flight
+     *    -> nothing to decide (single owner of recovery).
+     * 2. Not a stall candidate (paused / READY / IDLE / ENDED) or a player
+     *    error is present -> reset timing debt (idle self-stop flow untouched).
+     * 3. Placeholder current item -> the JIT worker owns it -> reset debt.
+     * 4. Position advanced since the previous sample -> progress law wins ->
+     *    reset debt.
+     * 5. Genuinely frozen -> escalate via the pure ladder.
+     */
+    internal fun onWatchdogTick(nowMs: Long) {
+        if (released) return
+        val renewalInFlight = renewalJobs.values.any { it.isActive }
+        if (
+            JitPolicy.isWatchdogSuppressed(renewalInFlight, watchdogRecoveryJob?.isActive == true)
+        ) {
+            return
+        }
+        val playWhenReady = try {
+            player.playWhenReady
+        } catch (_: Exception) {
+            false
+        }
+        val state = try {
+            player.playbackState
+        } catch (_: Exception) {
+            Player.STATE_IDLE
+        }
+        val errorPresent = try {
+            player.playerError != null
+        } catch (_: Exception) {
+            false
+        }
+        if (!JitPolicy.isStallCandidate(playWhenReady, state) || errorPresent) {
+            resetStallClock(nowMs)
+            return
+        }
+        val sourceId = currentResolvedSourceId()
+        if (sourceId == null) {
+            // Placeholder current items belong to the JIT resolution path.
+            resetStallClock(nowMs)
+            return
+        }
+        val positionMs = livePositionMs()
+        if (positionMs != lastTickPositionMs) {
+            // Buffer/seek progress observed during the window: debt restarts.
+            resetStallClock(nowMs)
+            return
+        }
+        when (
+            JitPolicy.watchdogAction(
+                nowMs - stallBaselineMs,
+                downgradeAttempted,
+                rebuildAttempts,
+                msSinceLastAction(nowMs),
+            )
+        ) {
+            JitPolicy.WatchdogAction.None -> Unit
+            JitPolicy.WatchdogAction.Downscale -> {
+                downgradeAttempted = true
+                markWatchdogAction(nowMs)
+                launchWatchdogRecovery(sourceId!!, AudioRequest.refresh(JitPolicy.DOWNSCALE_QUALITY))
+            }
+            JitPolicy.WatchdogAction.Rebuild -> {
+                rebuildAttempts++
+                markWatchdogAction(nowMs)
+                launchWatchdogRecovery(sourceId!!, AudioRequest.refresh())
+            }
+            JitPolicy.WatchdogAction.Skip -> skipStalledCurrent(sourceId!!, nowMs)
+        }
+    }
+
+    /**
+     * Single-flight watchdog recovery for the current item: invalidate +
+     * typed resolve ([request]), then apply through the SHARED renewal
+     * sequence (mediaId-scan swap -> seekTo(captured) -> prepare -> conditional
+     * play). Resolver Failure is deliberately silent here — the escalation
+     * ladder keeps running and the SKIP tier owns typed surfacing. Never
+     * throws; clears its single-flight slot on completion.
+     */
+    private fun launchWatchdogRecovery(sourceId: SourceId, request: AudioRequest) {
+        val resumePositionMs = captureResumePositionMs()
+        val wasPlaying = try {
+            player.playWhenReady
+        } catch (_: Exception) {
+            false
+        }
+        val job = scope.launch {
+            safeInvalidate(sourceId)
+            when (val result = safeResolveAudio(sourceId, request)) {
+                is SwayResult.Success ->
+                    applyRenewedRendition(sourceId, result.data, resumePositionMs, wasPlaying)
+                is SwayResult.Failure -> Unit
+            }
+        }
+        watchdogRecoveryJob = job
+        job.invokeOnCompletion { if (watchdogRecoveryJob === job) watchdogRecoveryJob = null }
+    }
+
+    /**
+     * Honest escalation end (FR-14): publish the typed category through the
+     * shared slot (uiState.failedTrack glue consumes it) BEFORE advancing;
+     * prefer `seekToNextMediaItem` (the JIT path resolves the next placeholder
+     * naturally); on the last item PAUSE instead of looping on a dead tail.
+     * The episode resets so the next item owns a fresh ladder. Never throws.
+     */
+    private fun skipStalledCurrent(sourceId: SourceId, nowMs: Long) {
+        markWatchdogAction(nowMs)
+        resetWatchdogEpisode()
+        publishFailure(sourceId, SwayError.UpstreamUnavailable)
+        onMainLooper {
+            if (released) return@onMainLooper
+            try {
+                if (player.hasNextMediaItem()) player.seekToNextMediaItem() else player.pause()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /** Reset freeze accounting only; per-item escalation memory is kept. */
+    private fun resetStallClock(nowMs: Long) {
+        stallBaselineMs = nowMs
+        lastTickPositionMs = livePositionMs()
+    }
+
+    /**
+     * Full episode reset — timing debt AND escalation memory. Fires on item
+     * transition (gapless transitions never accrue stall debt) and on
+     * successful-progress observation ([noteSuccessfulProgress]).
+     */
+    private fun resetWatchdogEpisode() {
+        downgradeAttempted = false
+        rebuildAttempts = 0
+        lastWatchdogActionAtMs = Long.MIN_VALUE
+        lastTickPositionMs = Long.MIN_VALUE
+        stallBaselineMs = clock()
+    }
+
+    private fun markWatchdogAction(nowMs: Long) {
+        lastWatchdogActionAtMs = nowMs
+    }
+
+    private fun msSinceLastAction(nowMs: Long): Long =
+        if (lastWatchdogActionAtMs == Long.MIN_VALUE) Long.MAX_VALUE else nowMs - lastWatchdogActionAtMs
+
+    private fun livePositionMs(): Long = try {
+        player.currentPosition
+    } catch (_: Exception) {
+        0L
     }
 
     // --- prefetch -------------------------------------------------------------------
