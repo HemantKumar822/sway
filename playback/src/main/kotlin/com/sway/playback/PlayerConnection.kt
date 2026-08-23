@@ -408,6 +408,18 @@ class PlayerConnection private constructor(
                 syncFromPlayer()
             }
 
+            // Story 6.2 (FR-19): focus/route transitions can flip playWhenReady
+            // or playback suppression WITHOUT flipping raw isPlaying (e.g. a
+            // transient focus loss during buffering), so mirror those events
+            // into uiState within the same sync budget.
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                syncFromPlayer()
+            }
+
+            override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
+                syncFromPlayer()
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 syncFromPlayer()
             }
@@ -451,7 +463,15 @@ class PlayerConnection private constructor(
     private fun syncFromPlayer() {
         val p = player ?: return
         val isPlaying = try {
-            p.isPlaying || p.playWhenReady
+            // Story 6.2 (FR-19/AD-12, UX §6.13 "UI never fights the system"):
+            // media3 implements a transient audio-focus loss as playback
+            // SUPPRESSION — playWhenReady stays true while audible output
+            // stops — so the optimistic playWhenReady fallback must be gated
+            // on suppression being NONE or the facade would report playing
+            // during a phone call. Ducking (may-duck grant) suppresses
+            // nothing: music keeps playing ducked and the UI stays playing.
+            val suppressed = p.playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE
+            !suppressed && (p.isPlaying || p.playWhenReady)
         } catch (_: Exception) {
             _uiState.value.isPlaying
         }
