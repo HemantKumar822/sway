@@ -103,26 +103,34 @@ class SwayDownloaderImpl(
                 }
 
                 // 10 MB metadata body cap — mirrors reference hardening; stream URLs are not fetched here.
+                // Oversized maps to UpstreamUnavailable at the mapper layer (EP-5): throw to let
+                // NewPipeCatalogSource translate to SwayError.UpstreamUnavailable rather than
+                // silently returning empty and being misclassified as Parse.
                 val bodyString: String = res.body.let { body ->
                     val limit = 10L * 1024 * 1024
                     val contentLength = body.contentLength()
                     if (contentLength != -1L && contentLength > limit) {
-                        CatalogLog.w("body too large ($contentLength > $limit), returning empty: $shortUrl")
-                        ""
+                        CatalogLog.w("body too large ($contentLength > $limit), throwing UpstreamUnavailable: $shortUrl")
+                        throw IOException("response body exceeds 10MB limit ($contentLength)")
                     } else {
                         try {
                             val source = body.source()
                             // Request up to limit bytes to avoid unbounded buffering.
                             source.request(limit)
                             if (source.buffer.size > limit) {
-                                CatalogLog.w("body exceeded limit during read, returning empty: $shortUrl")
-                                ""
+                                CatalogLog.w("body exceeded limit during read, throwing: $shortUrl")
+                                throw IOException("response body exceeds 10MB limit (buffer > $limit)")
                             } else {
                                 body.string()
                             }
+                        } catch (e: IOException) {
+                            // Propagate limit IOException without swallowing; other IOExceptions wrapped below.
+                            if (e.message?.contains("exceeds 10MB") == true) throw e
+                            CatalogLog.w("body read threw ${e.javaClass.simpleName}: ${e.message} $shortUrl")
+                            throw e
                         } catch (e: Exception) {
                             CatalogLog.w("body read threw ${e.javaClass.simpleName}: ${e.message} $shortUrl")
-                            ""
+                            throw IOException("body read failed: ${e.message}", e)
                         }
                     }
                 }

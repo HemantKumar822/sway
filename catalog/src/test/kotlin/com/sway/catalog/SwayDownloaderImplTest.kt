@@ -209,10 +209,10 @@ class SwayDownloaderImplTest {
 
     @Test
     fun `oversized body beyond 10MB returns empty string (OOM defense)`() {
-        // Content-Length header exceeds limit — downloader should short-circuit to empty
-        // when the header is respected. MockWebServer may recompute Content-Length from
-        // the body, so we assert the defense does not crash and 200 is returned;
-        // empty is preferred but 100 x's is acceptable when the server rewrites length.
+        // Content-Length header exceeds limit — downloader should throw IOException mapping
+        // to UpstreamUnavailable (EP-5) when header is respected. MockWebServer may recompute
+        // Content-Length from the body, so defense may not trigger for this small body:
+        // we assert no crash and either success with body or IOException with limit message.
         server.enqueue(
             MockResponse.Builder()
                 .code(200)
@@ -222,9 +222,24 @@ class SwayDownloaderImplTest {
         )
         val url = server.url("/large").toString()
         val req = Request.newBuilder().get(url).build()
-        val resp = downloader.execute(req)
-        assertEquals(200, resp.responseCode())
-        assertTrue(resp.responseBody() == "" || resp.responseBody() == "x".repeat(100))
+        try {
+            val resp = downloader.execute(req)
+            assertEquals(200, resp.responseCode())
+            assertTrue(resp.responseBody() == "" || resp.responseBody() == "x".repeat(100))
+        } catch (e: java.io.IOException) {
+            assertTrue(e.message?.contains("exceeds 10MB") == true)
+        }
         server.takeRequest() // consume
+    }
+
+    @Test(expected = java.io.IOException::class)
+    fun `actual oversized body exceeding 10MB throws IOException for UpstreamUnavailable`() {
+        // Real oversize body (11 MB) must throw IOException so search mappers map to UpstreamUnavailable.
+        // Allocate 11 MB string — one-time cost, released after test.
+        val largeBody = "x".repeat(11 * 1024 * 1024)
+        server.enqueue(MockResponse.Builder().code(200).body(largeBody).build())
+        val url = server.url("/huge").toString()
+        val req = Request.newBuilder().get(url).build()
+        downloader.execute(req) // should throw
     }
 }
