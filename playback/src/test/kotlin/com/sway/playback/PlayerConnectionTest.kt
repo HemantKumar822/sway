@@ -60,6 +60,8 @@ class PlayerConnectionTest {
     private fun song(id: String, title: String = "Title $id"): Song =
         Song.create(id = id, rawTitle = title, durationMs = 180_000)!!
 
+    private fun songs(vararg ids: String): List<Song> = ids.map { song(it) }
+
     private fun queue(vararg ids: String): QueueSnapshot =
         QueueSnapshot.of(ids.map { QueueItem.of(song(it)) })
 
@@ -367,6 +369,83 @@ class PlayerConnectionTest {
         assertNull(PendingUri.extractSourceId("https://example.com/notpending"))
         assertTrue(PendingUri.PREFIX.startsWith("sway:"))
         assertTrue(PendingUri.PREFIX.endsWith("/"))
+    }
+
+    // -----------------------------------------------------------------------
+    // Story 4.3 — queue builder + placeholder scheme
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun setQueue_nItemSnapshot_everyPlayerItemIsPendingPlaceholder_zeroResolvedUrls() = runTest {
+        val player = exoPlayer()
+        addTeardown { try { player.release() } catch (_: Exception) {} }
+        val conn = PlayerConnection.forTest(player, this)
+        addTeardown { try { conn.release() } catch (_: Exception) {} }
+
+        val snap = queue("s1", "s2", "s3", "s4")
+        conn.setQueue(snap, 2)
+        runCurrent()
+
+        val count = player.mediaItemCount
+        assertEquals(4, count)
+        for (i in 0 until count) {
+            val item = player.getMediaItemAt(i)
+            val uri = item.localConfiguration?.uri?.toString()
+            assertNotNull("Player item $i must carry a URI", uri)
+            assertTrue(
+                "Player item $i uri must start with ${PendingUri.PREFIX} but was $uri",
+                uri!!.startsWith(PendingUri.PREFIX),
+            )
+            assertFalse("Player item $i must not be a resolved http(s) URL: $uri", uri.startsWith("http://"))
+            assertFalse("Player item $i must not be a resolved https URL: $uri", uri.startsWith("https://"))
+        }
+        // mediaIds mirror the SourceIds in queue order.
+        for (i in 0 until count) {
+            assertEquals(snap.itemAt(i)?.id?.value, player.getMediaItemAt(i).mediaId)
+        }
+        // Chosen start item sits at the requested startIndex.
+        assertEquals(2, player.currentMediaItemIndex)
+        assertEquals("s3", conn.uiState.value.currentItem?.id?.value)
+
+        conn.release()
+    }
+
+    @Test
+    fun setQueue_builtQueueOverload_roundTripKeepsChosenAtStartIndex() = runTest {
+        val player = exoPlayer()
+        addTeardown { try { player.release() } catch (_: Exception) {} }
+        val conn = PlayerConnection.forTest(player, this)
+        addTeardown { try { conn.release() } catch (_: Exception) {} }
+
+        // Song tap variant through the overload.
+        val context = songs("w1", "w2", "w3")
+        val tapped = QueueBuilder.fromSongTap(song("w2"), context)
+        conn.setQueue(tapped)
+        runCurrent()
+        assertEquals(3, player.mediaItemCount)
+        assertEquals(tapped.startIndex, player.currentMediaItemIndex)
+        assertEquals("w2", conn.uiState.value.currentItem?.id?.value)
+
+        // Shuffle variant through the overload: chosen pinned first.
+        val shuffleBuilt = QueueBuilder.shuffled(context, song("w3"), seed = 21L)
+        conn.setQueue(shuffleBuilt)
+        runCurrent()
+        assertEquals(context.size, player.mediaItemCount)
+        assertEquals(shuffleBuilt.startIndex, player.currentMediaItemIndex)
+        assertEquals(0, shuffleBuilt.startIndex)
+        assertEquals("w3", conn.uiState.value.currentItem?.id?.value)
+        assertEquals(
+            shuffleBuilt.snapshot.items.map { it.id.value },
+            (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId },
+        )
+        // Overload still routes through the uniform placeholder mapping.
+        for (i in 0 until player.mediaItemCount) {
+            val uri = player.getMediaItemAt(i).localConfiguration?.uri?.toString()
+            assertNotNull(uri)
+            assertTrue(uri!!.startsWith(PendingUri.PREFIX))
+        }
+
+        conn.release()
     }
 
     // -----------------------------------------------------------------------

@@ -29,5 +29,8 @@ jobs:
       - name: Module edge audit (AD-5)
         run: bash scripts/check_module_edges.sh
 
+      - name: Placeholder scheme audit (AD-6 rule 6)
+        run: bash scripts/check_placeholder_scheme.sh
+
       - name: Assemble debug
         run: ./gradlew assembleDebug --stacktrace

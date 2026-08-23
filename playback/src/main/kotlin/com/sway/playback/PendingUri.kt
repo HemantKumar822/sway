@@ -6,12 +6,17 @@ import com.sway.core.model.SourceId
 /**
  * Placeholder URI scheme (sway pending) — AD-6 rule 6, AR-5.
  *
- * **Exactly one place** in `:playback` defines this scheme via [PREFIX].
- * No other module may construct, mutate, or string-sniff placeholders —
- * grep-audited (CI). Resolution state is owned service-side; queue entries
+ * **Single-owner law:** `sway://pending/<sourceId>` is defined in exactly ONE
+ * object ([PendingUri]) in `:playback`, and this object is `internal` — only
+ * `:playback` code may construct, mutate, or string-sniff placeholders. Any
+ * other module attempting to reference the scheme or this type cannot compile
+ * (internal visibility), and any stray `sway://` / `PendingUri` occurrence in
+ * tracked code files outside the playback module sources fails the repo grep audit
+ * (`scripts/check_placeholder_scheme.sh`, wired as a CI step beside the
+ * module edge audit). Resolution state is owned service-side; queue entries
  * are Source-ID placeholders until just-in-time resolve (FR-12).
  */
-object PendingUri {
+internal object PendingUri {
 
     private const val SCHEME = "sway"
     private const val HOST = "pending"

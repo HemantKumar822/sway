@@ -242,6 +242,17 @@ class PlayerConnection private constructor(
         setQueueInternal(snapshot, this.startIndex)
     }
 
+    /**
+     * Overload consuming [QueueBuilder] output directly (story 4.3) — play
+     * actions hand the facade a [QueueBuilder.BuiltQueue] and it feeds the
+     * exact same validated path as [setQueue]. No resolution occurs; every
+     * item is stamped with a PendingUri placeholder inside
+     * [setQueueInternal], keeping "zero resolved URLs" structurally true.
+     */
+    fun setQueue(built: QueueBuilder.BuiltQueue) {
+        setQueue(built.snapshot, built.startIndex)
+    }
+
     private fun setQueueInternal(snapshot: QueueSnapshot, idx: Int) {
         val p = player
         if (p == null) {
