@@ -45,7 +45,7 @@ epic-1-retrospective: optional
 | 2.1 | Catalog models & identity law | 3 | 1.1 | AR-8 blank-id law | done |
 | 2.2 | SwayResult & SwayError taxonomy | 3 | 1.1 | NFR-2 substrate | done |
 | 2.3 | ArtworkRef & candidate chain | 2 | 1.1 | FR-35/36 substrate | done |
-| 2.4 | Ports & playback vocabulary | 3 | 2.1, 2.2 | CatalogSource + StreamResolver ports | todo |
+| 2.4 | Ports & playback vocabulary | 3 | 2.1, 2.2 | CatalogSource + StreamResolver ports | done — CatalogSource/StreamResolver+PagedResult/ResolvedAudio/Quality/AudioRequest/QueueSnapshot/QueueItem + fakes compile, 118 tests green, zero Android imports |
 epic-2-retrospective: optional
 
 ### Epic 3 — Catalog Adapter: NewPipe Behind Ports (25 pts) — enabler
@@ -176,6 +176,7 @@ Every FR-1..40 and NFR-1..10 has exactly one completing epic/story (see epics-an
 - 2.1 done — :core:model pure-Kotlin compileKotlin + 65 JVM tests green (SourceId/DurationMs/ArtworkRef/Song/Album/Artist/CatalogPlaylist/Playlist/title), zero Android imports, AR-8 blank-id law + AR-14 conventions — commit feat(2.1) closes #4
 - 2.2 done — :core:model compileKotlin + :core:model:test 95 tests (65 prior + 13 SwayError + 17 SwayResult) green, exhaustive when without else compiles, 7-category AD-9 mapping (SwayError→SwayErrorUiState 1:1), combinators map/onSuccess/onFailure/recoverToState, Unknown cause preserved, failures as values — commit 0a60052 feat(2.2) closes #5
 - 2.3 done — :core:model compileKotlin + :core:model:test 102 tests (16 ArtworkRef incl. equality/order, cacheKey==canonical, synthetic 4-chain maxres→sd→hq→mq, walk-on-failure candidateAfter) green, zero Android imports, AR-10/AD-11 candidate chain + cache-key + synthetic video-id rule — commit 0dd64fe feat(2.3) closes #6
+- 2.4 done — :core:model compileKotlin + :core:model:test 118 tests (15 PortsContract incl. fakes-compile/SwayResult-no-bare-lists/prefetch-null-silent/Q-AUTO/LOW/MEDIUM/HIGH/AudioRequest/ResolvedAudio-fields/PagedResult-token/QueueSnapshot-immutability + 1 ImportBan + 102 prior) green, fakes FakeCatalogSource/FakeStreamResolver compile against ports, KDoc cites AD-1/AR-2/AD-6/AD-7/AD-9, zero Android imports — commit 5bcf975 feat(2.4) closes #7
 
 ## Action items
 (none — created by retrospectives)
