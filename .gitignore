@@ -14,3 +14,18 @@ reference/
 /.codex/
 /.gemini/
 /.opencode/
+
+# Android SDK path - machine-local
+local.properties
+
+# Gradle build output & caches
+.gradle/
+build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+captures/
+
+# Kotlin build artifacts
+.kotlin/
