@@ -105,7 +105,7 @@ epic-8-retrospective: optional
 ### Epic 9 — Design Language & Navigation Shell (24 pts)
 | ID | Title | Pts | Deps | Completes | Status |
 |---|---|---|---|---|---|
-| 9.1 | SwayTheme tokens on M3 Expressive | 5 | 1.1 | UX-DR1–4 | todo |
+| 9.1 | SwayTheme tokens on M3 Expressive | 5 | 1.1 | UX-DR1-4 | done [OWNER-AMENDED two-mode brand] - Ink&Paper mono default + artwork-dynamic engine; 16 theme tests; import-lint audit |
 | 9.2 | Typed-state kit & core components | 8 | 9.1 | UX-DR5–7, 11, 15; FR-37 kit substrate | todo |
 | 9.3 | Navigation shell | 5 | 9.1 | **FR-26** | todo |
 | 9.4 | Startup law & offline launch routing | 3 | 9.3 | **NFR-1**; FR-38 substrate | todo |
