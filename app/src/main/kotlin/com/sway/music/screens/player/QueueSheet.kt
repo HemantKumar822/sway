@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -44,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import com.sway.core.model.QueueItem
 import com.sway.core.model.SourceId
 import com.sway.designui.components.ArtworkPlaceholder
+import com.sway.designui.images.SwayAsyncImage
+import com.sway.designui.theme.Atmosphere
 
 /**
  * Queue sheet (story 12.3; FR-23 + FR-24 COMPLETES HERE; DR10): opened from
@@ -78,14 +81,23 @@ fun QueueSheet(
     onMove: (from: Int, to: Int) -> Unit,
     onClearQueue: () -> Unit,
     onDismiss: () -> Unit,
+    atmosphere: Atmosphere? = null,
+    online: Boolean = true,
 ) {
     if (!visible || items.isEmpty()) return
 
     val currentIndex = items.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
     var confirmClear by remember { mutableStateOf(false) }
 
+    val sheetContainer = if (atmosphere != null) {
+        lerp(MaterialTheme.colorScheme.surfaceContainer, atmosphere.backdrop, 0.15f)
+    } else {
+        MaterialTheme.colorScheme.surfaceContainer
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        containerColor = sheetContainer,
         modifier = Modifier.testTag("queue_sheet"),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
@@ -112,6 +124,7 @@ fun QueueSheet(
                     onRemove = { onRemoveAt(currentIndex) },
                     onMoveUp = null,
                     onMoveDown = null,
+                    online = online,
                 )
             }
 
@@ -143,6 +156,7 @@ fun QueueSheet(
                         } else {
                             null
                         },
+                        online = online,
                     )
                 }
             }
@@ -190,6 +204,7 @@ private fun QueueRow(
     onRemove: () -> Unit,
     onMoveUp: (() -> Unit)?,
     onMoveDown: (() -> Unit)?,
+    online: Boolean = true,
 ) {
     val announcement = buildString {
         append(item.song.title)
@@ -205,8 +220,16 @@ private fun QueueRow(
             .semantics { contentDescription = announcement },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(44.dp)) {
-            ArtworkPlaceholder(Modifier.size(40.dp))
+        Box(Modifier.size(44.dp).clip(RoundedCornerShape(6.dp))) {
+            if (item.song.artwork != null) {
+                SwayAsyncImage(
+                    artwork = item.song.artwork,
+                    modifier = Modifier.size(40.dp),
+                    online = online,
+                )
+            } else {
+                ArtworkPlaceholder(Modifier.size(40.dp))
+            }
         }
         Column(
             Modifier

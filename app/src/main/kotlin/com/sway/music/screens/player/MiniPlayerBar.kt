@@ -37,9 +37,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import com.sway.core.model.SwayErrorUiState
 import com.sway.core.model.uiState
 import com.sway.designui.components.ArtworkPlaceholder
+import com.sway.designui.images.SwayAsyncImage
 import com.sway.playback.PlayerUiState
 
 /**
@@ -72,6 +77,8 @@ fun MiniPlayerBar(
     onOpenQueue: () -> Unit,
     onHide: () -> Unit,
     modifier: Modifier = Modifier,
+    accentColor: Color? = null,
+    online: Boolean = true,
 ) {
     if (!visible) return
     val item = state.currentItem ?: return
@@ -87,6 +94,7 @@ fun MiniPlayerBar(
                 positionMs = positionMs,
                 durationMs = item.song.duration.millis,
                 buffering = state.isBuffering,
+                accentColor = accentColor,
             )
             state.failedTrack?.let { failed ->
                 FailedTrackChip(failed.item.song.title, failed.error.uiState)
@@ -119,7 +127,22 @@ fun MiniPlayerBar(
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ArtworkPlaceholder(Modifier.size(48.dp))
+                    val thumbMod = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .then(
+                            if (accentColor != null) Modifier.border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                            else Modifier
+                        )
+                    if (item.song.artwork != null) {
+                        SwayAsyncImage(
+                            artwork = item.song.artwork,
+                            modifier = thumbMod,
+                            online = online,
+                        )
+                    } else {
+                        ArtworkPlaceholder(thumbMod)
+                    }
                     Column(Modifier.padding(start = 12.dp).semantics {
                         contentDescription = "${item.song.title}, ${item.song.artistName ?: "Unknown artist"}"
                     }) {
@@ -171,7 +194,7 @@ fun MiniPlayerBar(
  * never a fake determinate value).
  */
 @Composable
-private fun ProgressHairline(positionMs: Long, durationMs: Long, buffering: Boolean) {
+private fun ProgressHairline(positionMs: Long, durationMs: Long, buffering: Boolean, accentColor: Color? = null) {
     val pulse = if (buffering) {
         val transition = rememberInfiniteTransition(label = "hairlinePulse")
         val alpha by transition.animateFloat(
@@ -206,7 +229,7 @@ private fun ProgressHairline(positionMs: Long, durationMs: Long, buffering: Bool
                 .fillMaxWidth(fraction)
                 .fillMaxSize()
                 .graphicsLayer { alpha = pulse }
-                .background(MaterialTheme.colorScheme.primary),
+                .background(accentColor ?: MaterialTheme.colorScheme.primary),
         )
     }
 }

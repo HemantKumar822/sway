@@ -41,10 +41,19 @@ dependencies {
 
     implementation(libs.androidx.palette)
 
+    // Story 13.1 (FR-35): image pipeline on the single OkHttp stack (AD-3).
+    // The OkHttpClient itself is INJECTED by :app — designui never depends on
+    // :catalog, so no transport/host knowledge can leak past this edge (AR-2).
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+    implementation(libs.okhttp)
+
     testImplementation(libs.androidx.compose.ui.test.junit4)
     testImplementation(libs.androidx.compose.ui.test.manifest)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockwebserver3)
 }

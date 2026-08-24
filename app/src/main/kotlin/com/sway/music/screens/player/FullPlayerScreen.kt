@@ -1,5 +1,6 @@
 package com.sway.music.screens.player
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -45,13 +46,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sway.core.model.RepeatMode
-import com.sway.designui.components.ArtworkPlaceholder
+import com.sway.designui.images.SwayAsyncImage
+import com.sway.designui.theme.Atmosphere
 import com.sway.designui.theme.MotionScheme
 import com.sway.playback.PlayerUiState
 import kotlinx.coroutines.launch
@@ -104,6 +108,9 @@ fun FullPlayerScreen(
     onOpenQueue: () -> Unit,
     modifier: Modifier = Modifier,
     qualityChip: (@Composable () -> Unit)? = null,
+    atmosphere: Atmosphere? = null,
+    online: Boolean = true,
+    reducedMotion: Boolean = false,
 ) {
     val item = state.currentItem ?: return
     val scope = rememberCoroutineScope()
@@ -130,10 +137,20 @@ fun FullPlayerScreen(
     }
     if (render == PlayerRender.Hidden) return
 
+    val fallbackSurface = MaterialTheme.colorScheme.surfaceContainer
+    val targetBackdrop = atmosphere?.backdrop ?: fallbackSurface
+    val animatedBackdrop by animateColorAsState(
+        targetValue = targetBackdrop,
+        animationSpec = tween(durationMillis = if (reducedMotion) 100 else 600),
+        label = "backdropCrossfade",
+    )
+    val scrimStrong = atmosphere?.scrimStrong ?: 0.60f
+    val scrimSoft = atmosphere?.scrimSoft ?: 0.35f
+
     Box(
         modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .background(animatedBackdrop)
             .graphicsLayer {
                 alpha = progress.value
                 translationY = (1f - progress.value) * 120f
@@ -164,6 +181,20 @@ fun FullPlayerScreen(
             }
             .testTag("player_surface"),
     ) {
+        // Scrim gradient OVER the animated backdrop — guarantees AA for text over backdrop.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = scrimStrong),
+                            Color.Black.copy(alpha = scrimSoft),
+                        ),
+                    ),
+                )
+                .testTag("player_scrim"),
+        )
         Column(Modifier.fillMaxSize().padding(top = 8.dp)) {
             // Collapse chevron.
             Row(
@@ -193,7 +224,15 @@ fun FullPlayerScreen(
                         }
                         .testTag("player_artwork"),
                 ) {
-                    ArtworkPlaceholder(Modifier.fillMaxSize())
+                    if (item.song.artwork != null) {
+                        SwayAsyncImage(
+                            artwork = item.song.artwork,
+                            modifier = Modifier.fillMaxSize(),
+                            online = online,
+                        )
+                    } else {
+                        com.sway.designui.components.ArtworkPlaceholder(Modifier.fillMaxSize())
+                    }
                 }
             }
             Spacer(Modifier.height(20.dp))

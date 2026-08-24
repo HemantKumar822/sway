@@ -8,15 +8,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.sway.core.model.ArtworkRef
 import com.sway.core.model.Song
 
 /**
@@ -37,6 +40,8 @@ fun SongRow(
     failedReason: String? = null,
     trailingLabel: String? = null,
     onLongClick: () -> Unit = {},
+    artwork: ArtworkRef? = song.artwork,
+    online: Boolean = true,
 ) {
     val titleColor = when {
         failedReason != null -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -70,7 +75,16 @@ fun SongRow(
                 modifier = Modifier.size(width = 28.dp, height = 24.dp),
             )
         } else {
-            ArtworkPlaceholder(Modifier.size(48.dp))
+            val thumbMod = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))
+            if (artwork != null) {
+                com.sway.designui.images.SwayAsyncImage(
+                    artwork = artwork,
+                    modifier = thumbMod,
+                    online = online,
+                )
+            } else {
+                ArtworkPlaceholder(thumbMod)
+            }
         }
         Column(Modifier.padding(start = 12.dp).weight(1f)) {
             Text(

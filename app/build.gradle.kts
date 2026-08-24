@@ -67,6 +67,12 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons)
 
+    // 13.1: Image pipeline on single OkHttp stack (AR-4) — app injects the artwork variant
+    // into :designui's SwayImages; coil + okhttp types are needed for the init signature.
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+    implementation(libs.okhttp)
+
     // DI single stack (AD-2): Hilt owns the app graph; bindings aggregate here.
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

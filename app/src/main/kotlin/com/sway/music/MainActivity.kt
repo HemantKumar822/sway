@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,15 +28,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.sway.core.model.SourceId
+import com.sway.catalog.CatalogHttpClient
 import com.sway.core.data.AppDataGraph
 import com.sway.core.model.Quality
+import com.sway.core.model.SourceId
+import com.sway.designui.images.FailedArtworkRegistry
+import com.sway.designui.images.SwayImages
+import com.sway.designui.theme.Atmospherics
 import com.sway.designui.theme.SwayTheme
 import com.sway.designui.theme.ThemeConfig
 import com.sway.music.connectivity.ConnectivityObserver
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.sway.music.navigation.Routes
 import com.sway.music.navigation.SwayNavHost
 import com.sway.music.navigation.navigateToTab
@@ -97,10 +106,31 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val dark = isSystemInDarkTheme()
-            SwayTheme(config = ThemeConfig(darkTheme = dark)) {
+            // 13.1: Image pipeline — init once in composition scope (AD-10: no disk/network in onCreate).
+            // Caches are lazy inside Coil; this post-first-frame construction keeps startup free.
+            val appCtx = LocalContext.current.applicationContext
+            remember {
+                try {
+                    SwayImages.init(appCtx, CatalogHttpClient.createArtworkVariant(), appCtx.cacheDir)
+                } catch (_: Exception) {
+                }
+            }
+            // 13.2: atmosphere holds the playing cover's palette; drives SwayTheme dynamicSeed
+            // (MONO default until 15.1 persistence — dynamic path exercised via seed injection).
+            var atmosphere by remember { mutableStateOf<com.sway.designui.theme.Atmosphere?>(null) }
+            SwayTheme(config = ThemeConfig(darkTheme = dark), dynamicSeed = atmosphere?.seed) {
                 NotificationPermissionRationale()
 
                 val online by connectivity.online.collectAsStateWithLifecycle()
+                // 13.1: connectivity-restored retry trigger — clears exhausted registry so placeholders re-fire.
+                // SwayAsyncImage also bumps its attemptEpoch when online flips and the key was failed.
+                LaunchedEffect(online) {
+                    if (online) {
+                        // Small delay lets SwayAsyncImage's LaunchedEffect observe the key before clear.
+                        kotlinx.coroutines.delay(120)
+                        FailedArtworkRegistry.retryAll()
+                    }
+                }
                 // Story 9.4: offline launch routes to Library with the banner.
                 var startTab by remember { mutableStateOf(if (online) Routes.HOME else Routes.LIBRARY) }
 
@@ -171,6 +201,38 @@ class MainActivity : ComponentActivity() {
                     val currentLiked = playback.currentItem?.let { cur ->
                         likedSongs.any { it.id == cur.song.id }
                     } ?: false
+
+                    // 13.2: atmosphere extraction — keyed by canonicalUrl, off-main, cached LRU 32.
+                    // Fallback neutral ensures scrim AA even when extraction fails.
+                    LaunchedEffect(playback.currentItem?.song?.artwork?.cacheKey, dark) {
+                        val ref = playback.currentItem?.song?.artwork
+                        if (ref == null) {
+                            atmosphere = null
+                        } else {
+                            try {
+                                val loader = if (SwayImages.isInitialized) SwayImages.loader() else null
+                                val result = if (loader != null) {
+                                    withContext(Dispatchers.Default) {
+                                        Atmospherics.loadSeedBitmap(loader, appCtx, ref, dark)
+                                    }
+                                } else null
+                                atmosphere = result ?: withContext(Dispatchers.Default) { Atmospherics.fallback(dark) }
+                            } catch (_: Exception) {
+                                atmosphere = withContext(Dispatchers.Default) { Atmospherics.fallback(dark) }
+                            }
+                        }
+                    }
+
+                    // 13.2 PROVISIONAL: status-bar echo when full player open with atmosphere (SDK <35 guard).
+                    if (fullOpen && atmosphere != null && Build.VERSION.SDK_INT < 35) {
+                        SideEffect {
+                            try {
+                                @Suppress("DEPRECATION")
+                                window.statusBarColor = atmosphere!!.backdrop.toArgb()
+                            } catch (_: Exception) {
+                            }
+                        }
+                    }
 
                     fun toggleLike(song: com.sway.core.model.Song) = searchScope.launch {
                         if (likedSongs.any { it.id == song.id }) {
@@ -256,6 +318,13 @@ class MainActivity : ComponentActivity() {
                                 onExpand = { fullOpen = true },
                                 onOpenQueue = { queueOpen = true },
                                 onHide = { playbackHost.hideBar() },
+                                accentColor = atmosphere?.seed?.let { seed ->
+                                    // Vibrant accent for hairline/thumb when atmosphere present.
+                                    try {
+                                        androidx.compose.ui.graphics.Color(seed.vibrant ?: seed.dominant)
+                                    } catch (_: Exception) { null }
+                                },
+                                online = online,
                             )
                         },
                         screen = { route ->
@@ -438,6 +507,8 @@ class MainActivity : ComponentActivity() {
                         qualityChip = {
                             QualityChip(current = audioQuality, onOpen = { qualityOpen = true })
                         },
+                        atmosphere = atmosphere,
+                        online = online,
                     )
 
                     // Story 12.3: Queue sheet over everything.
@@ -450,6 +521,8 @@ class MainActivity : ComponentActivity() {
                         onMove = { from, to -> playbackHost.moveQueueItem(from, to) },
                         onClearQueue = { playbackHost.clearQueue() },
                         onDismiss = { queueOpen = false },
+                        atmosphere = atmosphere,
+                        online = online,
                     )
 
                     // Story 12.4: quality selector (OQ-6 gate lives in the policy).
