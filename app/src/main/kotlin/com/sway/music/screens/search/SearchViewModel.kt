@@ -80,6 +80,22 @@ class SearchViewModel(
         _state.update { it.copy(filter = filter) }
     }
 
+    private var lastOnline = true
+
+    /**
+     * Reconnect law (story 10.4, FR-38 copy consistency): when connectivity
+     * returns while an area Error is showing, refresh the submitted query
+     * automatically — no restart needed. Stale-content groups refresh on the
+     * user's next explicit action (badge honesty preserved).
+     */
+    fun setOnline(isOnline: Boolean) {
+        val wasOnline = lastOnline
+        lastOnline = isOnline
+        if (!wasOnline && isOnline && _state.value.phase is SearchPhase.Error) {
+            onRetry()
+        }
+    }
+
     /** Retry preserves the submitted query verbatim (FR-37 contract). */
     fun onRetry() {
         val query = _state.value.submittedQuery ?: _state.value.query.trim()

@@ -53,13 +53,22 @@ fun SwayNavHost(
     modifier: Modifier = Modifier,
     startTab: String = Routes.HOME,
     offlineBannerVisible: Boolean = false,
+    snackbarHostState: androidx.compose.material3.SnackbarHostState? = null,
     screen: @Composable (route: String) -> Unit = { route -> PlaceholderScreen(labelFor(route)) },
+    detailScreen: @Composable (route: String, id: String) -> Unit = { route, _ ->
+        PlaceholderScreen(labelFor(route))
+    },
 ) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        snackbarHost = {
+            if (snackbarHostState != null) {
+                androidx.compose.material3.SnackbarHost(hostState = snackbarHostState)
+            }
+        },
         topBar = {
             Column {
                 OfflineBanner(visible = offlineBannerVisible, onDismiss = { /* state owner clears */ })
@@ -91,9 +100,15 @@ fun SwayNavHost(
             composable(Routes.LIBRARY) { screen(Routes.LIBRARY) }
 
             // Detail + utility destinations registered now; screens fill E10/E11/E15.
-            composable(Routes.ALBUM) { PlaceholderScreen("Album") }
-            composable(Routes.ARTIST) { PlaceholderScreen("Artist") }
-            composable(Routes.CATALOG_PLAYLIST) { PlaceholderScreen("Catalog Playlist") }
+            composable(Routes.ALBUM) { entry ->
+                detailScreen(Routes.ALBUM, entry.arguments?.getString("albumId").orEmpty())
+            }
+            composable(Routes.ARTIST) { entry ->
+                detailScreen(Routes.ARTIST, entry.arguments?.getString("artistId").orEmpty())
+            }
+            composable(Routes.CATALOG_PLAYLIST) { entry ->
+                detailScreen(Routes.CATALOG_PLAYLIST, entry.arguments?.getString("playlistId").orEmpty())
+            }
             composable(Routes.PLAYLIST) { PlaceholderScreen("Playlist") }
             composable(Routes.LIKED) { PlaceholderScreen("Liked Songs") }
             composable(Routes.HISTORY) { PlaceholderScreen("Play History") }

@@ -315,6 +315,37 @@ class SearchViewModelTest {
         assertEquals(listOf("Song s1", "Song s2", "Song s3"), songs.items.map { it.title })
         assertEquals(null, songs.appendError)
     }
+
+    // --- Story 10.4: offline/reconnect -----------------------------------------
+
+    @Test
+    fun reconnect_whileErrorPhase_autoRefreshesWithoutRestart() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val source = pagedSource()
+        // Error escalation needs ALL FOUR groups failing (the honest offline case).
+        val fail = SwayResult.Failure(SwayError.Offline)
+        source.songsResult = fail
+        source.albumsResult = fail
+        source.artistsResult = fail
+        source.playlistsResult = fail
+        val (vm, _) = newVm(source, CoroutineScope(dispatcher), dispatcher)
+        vm.onQueryChanged("neon")
+        advanceUntilIdle()
+        assertTrue(vm.state.value.phase is SearchPhase.Error)
+
+        // Connectivity returns; the fake recovers too — fresh query, no restart.
+        source.songsResult = SwayResult.Success(PagedResult.of(listOf(song("s1"), song("s2")), "t1"))
+        vm.setOnline(false)
+        vm.setOnline(true)
+        advanceUntilIdle()
+        assertTrue(vm.state.value.phase is SearchPhase.Results)
+
+        // No spurious retry when already online.
+        val callsBefore = source.searchCalls
+        vm.setOnline(true)
+        advanceUntilIdle()
+        assertEquals(callsBefore, source.searchCalls)
+    }
 }
 
 

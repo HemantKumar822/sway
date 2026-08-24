@@ -28,20 +28,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sway.core.model.SourceId
 import com.sway.core.data.AppDataGraph
 import com.sway.designui.theme.SwayTheme
 import com.sway.designui.theme.ThemeConfig
 import com.sway.music.connectivity.ConnectivityObserver
 import com.sway.music.navigation.Routes
 import com.sway.music.navigation.SwayNavHost
+import com.sway.music.navigation.navigateToTab
 import com.sway.music.navigation.rememberSwayNavController
 import com.sway.music.notifications.NotificationPermissionGate
 import com.sway.music.notifications.PermissionAction
+import com.sway.music.screens.detail.AlbumDetailScreen
+import com.sway.music.screens.detail.AlbumDetailViewModel
+import com.sway.music.screens.detail.ArtistDetailScreen
+import com.sway.music.screens.detail.ArtistDetailViewModel
+import com.sway.music.screens.detail.CatalogPlaylistDetailScreen
+import com.sway.music.screens.detail.CatalogPlaylistDetailViewModel
 import com.sway.music.screens.HomeScreen
+import com.sway.music.screens.menu.SongContextMenu
+import com.sway.music.screens.menu.SongMenuAction
+import com.sway.music.screens.menu.rawCatalogUrl
+import com.sway.music.screens.menu.shareRawUrl
 import com.sway.music.screens.search.SearchFilter
+import com.sway.music.screens.search.SearchGroup
 import com.sway.music.screens.search.SearchScreen
 import com.sway.music.screens.search.SearchViewModel
 import com.sway.music.screens.search.SharedPrefsRecentSearchStore
+import kotlinx.coroutines.launch
 
 /**
  * App shell (stories 6.3 / 9.1 / 9.3 / 9.4 / 9.5): two-mode SwayTheme, the
@@ -90,43 +104,158 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     val searchState by searchVm.state.collectAsStateWithLifecycle()
+                    // Story 10.4: reconnect restores failed searches without restart.
+                    LaunchedEffect(online) { searchVm.setOnline(online) }
+
+                    // Stories 10.5–10.7: detail surfaces over the catalog repo.
+                    val navController = rememberSwayNavController()
+
+                    // Story 10.8: context-menu state + owned-data flows.
+                    var menuSongState by remember { mutableStateOf<com.sway.core.model.Song?>(null) }
+                    val likedSongs by graph.library.observeLiked()
+                        .collectAsStateWithLifecycle(initialValue = emptyList())
+                    val playlistSummaries by graph.playlists.observePlaylists()
+                        .collectAsStateWithLifecycle(initialValue = emptyList())
+                    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+                    val appContext = applicationContext
+
+                    menuSongState?.let { selected ->
+                        SongContextMenu(
+                            song = selected,
+                            liked = likedSongs.any { it.id == selected.id },
+                            playlists = playlistSummaries,
+                            onAction = { action ->
+                                when (action) {
+                                    SongMenuAction.PLAY_NEXT ->
+                                        searchScope.launch { snackbarHostState.showSnackbar("Playing next") }
+                                    SongMenuAction.ADD_TO_QUEUE ->
+                                        searchScope.launch { snackbarHostState.showSnackbar("Added to queue") }
+                                    SongMenuAction.TOGGLE_LIKE -> searchScope.launch {
+                                        if (likedSongs.any { it.id == selected.id }) {
+                                            graph.library.clearLiked(selected.id)
+                                            snackbarHostState.showSnackbar("Removed from Liked Songs")
+                                        } else {
+                                            graph.library.setLiked(selected)
+                                            snackbarHostState.showSnackbar("Added to Liked Songs")
+                                        }
+                                    }
+                                    SongMenuAction.GO_TO_ALBUM -> selected.albumId?.let {
+                                        navController.navigate(Routes.album(it.value))
+                                    }
+                                    SongMenuAction.GO_TO_ARTIST -> selected.artistId?.let {
+                                        navController.navigate(Routes.artist(it.value))
+                                    }
+                                    SongMenuAction.SHARE_URL -> shareRawUrl(
+                                        appContext,
+                                        rawCatalogUrl(selected.id.value),
+                                    )
+                                    else -> Unit // ADD_TO_PLAYLIST resolves through the picker
+                                }
+                                if (action != SongMenuAction.ADD_TO_PLAYLIST) menuSongState = null
+                            },
+                            onAddToPlaylist = { pid, song -> searchScope.launch {
+                                val name = playlistSummaries
+                                    .firstOrNull { it.playlist.id.value == pid }?.playlist?.name ?: "playlist"
+                                graph.playlists.addSong(com.sway.core.model.PlaylistId(pid), song)
+                                snackbarHostState.showSnackbar("Added to $name")
+                                menuSongState = null
+                            } },
+                            onCreatePlaylistAndAdd = { name, song -> searchScope.launch {
+                                val created = graph.playlists.create(name)
+                                if (created is com.sway.core.model.SwayResult.Success) {
+                                    graph.playlists.addSong(created.data, song)
+                                }
+                                snackbarHostState.showSnackbar("Added to $name")
+                                menuSongState = null
+                            } },
+                            onDismiss = { menuSongState = null },
+                        )
+                    }
 
                     SwayNavHost(
-                        navController = rememberSwayNavController(),
+                        navController = navController,
                         modifier = Modifier.fillMaxSize().padding(innerPadding),
                         startTab = startTab,
                         offlineBannerVisible = !online,
-                    ) { route ->
-                        when (route) {
-                            Routes.HOME -> HomeScreen(
-                                likedCount = 0,
-                                playlistCount = 0,
-                                historyCount = 0,
-                                onSearchClick = {},
-                                onLikedClick = {},
-                                onPlaylistsClick = {},
-                                onHistoryClick = {},
-                            )
-                            Routes.SEARCH -> SearchScreen(
-                                state = searchState,
-                                onQueryChanged = searchVm::onQueryChanged,
-                                onSubmit = searchVm::onSubmit,
-                                onChipSelected = { filter: SearchFilter -> searchVm.onChipSelected(filter) },
-                                onRetry = searchVm::onRetry,
-                                onLoadMore = { group: com.sway.music.screens.search.SearchGroup ->
-                                    searchVm.onLoadMore(group)
-                                },
-                                onClearQuery = searchVm::onClearQuery,
-                                onRecentSelected = searchVm::onRecentSelected,
-                                onClearRecents = searchVm::onClearRecents,
-                                onSongClick = { },
-                                onAlbumClick = { },
-                                onArtistClick = { },
-                                onPlaylistClick = { },
-                            )
-                            else -> Unit // NavHost destinations own these routes
-                        }
-                    }
+                        // Snackbar z-order ABOVE tab bar (UX-DR5 substrate).
+                        snackbarHostState = snackbarHostState,
+                        screen = { route ->
+                            when (route) {
+                                Routes.HOME -> HomeScreen(
+                                    likedCount = likedSongs.size,
+                                    playlistCount = playlistSummaries.size,
+                                    historyCount = 0,
+                                    onSearchClick = { navController.navigateToTab(Routes.SEARCH) },
+                                    onLikedClick = {},
+                                    onPlaylistsClick = {},
+                                    onHistoryClick = {},
+                                )
+                                Routes.SEARCH -> SearchScreen(
+                                    state = searchState,
+                                    onQueryChanged = searchVm::onQueryChanged,
+                                    onSubmit = searchVm::onSubmit,
+                                    onChipSelected = { filter: SearchFilter ->
+                                        searchVm.onChipSelected(filter)
+                                    },
+                                    onRetry = searchVm::onRetry,
+                                    onLoadMore = { group: com.sway.music.screens.search.SearchGroup ->
+                                        searchVm.onLoadMore(group)
+                                    },
+                                    onClearQuery = searchVm::onClearQuery,
+                                    onRecentSelected = searchVm::onRecentSelected,
+                                    onClearRecents = searchVm::onClearRecents,
+                                    onSongClick = { },
+                                    onSongLongClick = { menuSongState = it },
+                                    onAlbumClick = { album -> navController.navigate(Routes.album(album.id.value)) },
+                                    onArtistClick = { artist -> navController.navigate(Routes.artist(artist.id.value)) },
+                                    onPlaylistClick = { pl ->
+                                        navController.navigate(Routes.catalogPlaylist(pl.id.value))
+                                    },
+                                )
+                                else -> Unit // NavHost destinations own these routes
+                            }
+                        },
+                        detailScreen = { route, id ->
+                            when (route) {
+                                Routes.ALBUM -> {
+                                    val vm = remember(id) {
+                                        AlbumDetailViewModel(graph.catalog, SourceId(id), searchScope)
+                                    }
+                                    AlbumDetailScreen(
+                                        state = vm.state.collectAsStateWithLifecycle().value,
+                                        onRetry = vm::retry,
+                                        onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                        onArtistClick = { artistId ->
+                                            navController.navigate(Routes.artist(artistId.value))
+                                        },
+                                        onSongLongClick = { menuSongState = it },
+                                    )
+                                }
+                                Routes.ARTIST -> {
+                                    val vm = remember(id) {
+                                        ArtistDetailViewModel(graph.catalog, SourceId(id), searchScope)
+                                    }
+                                    ArtistDetailScreen(
+                                        state = vm.state.collectAsStateWithLifecycle().value,
+                                        onRetry = vm::retry,
+                                        onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                        onSongLongClick = { menuSongState = it },
+                                    )
+                                }
+                                Routes.CATALOG_PLAYLIST -> {
+                                    val vm = remember(id) {
+                                        CatalogPlaylistDetailViewModel(graph.catalog, SourceId(id), searchScope)
+                                    }
+                                    CatalogPlaylistDetailScreen(
+                                        state = vm.state.collectAsStateWithLifecycle().value,
+                                        onRetry = vm::retry,
+                                        onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                        onSongLongClick = { menuSongState = it },
+                                    )
+                                }
+                            }
+                        },
+                    )
                 }
             }
         }

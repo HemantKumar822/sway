@@ -49,6 +49,7 @@ fun SearchScreen(
     onRecentSelected: (String) -> Unit,
     onClearRecents: () -> Unit,
     onSongClick: (Song) -> Unit,
+    onSongLongClick: (Song) -> Unit = {},
     onAlbumClick: (Album) -> Unit,
     onArtistClick: (Artist) -> Unit,
     onPlaylistClick: (CatalogPlaylist) -> Unit,
@@ -97,6 +98,7 @@ fun SearchScreen(
                 filter = state.filter,
                 onRetry = onRetry,
                 onLoadMore = onLoadMore,
+                onSongLongClick = onSongLongClick,
                 onSongClick = onSongClick,
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
@@ -180,6 +182,7 @@ private fun ResultsList(
     filter: SearchFilter,
     onRetry: () -> Unit,
     onLoadMore: (SearchGroup) -> Unit,
+    onSongLongClick: (Song) -> Unit,
     onSongClick: (Song) -> Unit,
     onAlbumClick: (Album) -> Unit,
     onArtistClick: (Artist) -> Unit,
@@ -188,7 +191,7 @@ private fun ResultsList(
     // Songs first per UX-P7; each group renders its own honest state.
     LazyColumn(Modifier.fillMaxSize().testTag("results")) {
         if (filter == SearchFilter.ALL || filter == SearchFilter.SONGS) {
-            songSection(phase.songs, onRetry, onSongClick) { onLoadMore(SearchGroup.SONGS) }
+            songSection(phase.songs, onRetry, onSongClick, onSongLongClick) { onLoadMore(SearchGroup.SONGS) }
         }
         if (filter == SearchFilter.ALL || filter == SearchFilter.ALBUMS) {
             albumSection(phase.albums, onRetry, onAlbumClick) { onLoadMore(SearchGroup.ALBUMS) }
@@ -206,6 +209,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.songSection(
     group: GroupState<Song>,
     onRetry: () -> Unit,
     onClick: (Song) -> Unit,
+    onLongClick: (Song) -> Unit,
     onLoadMore: () -> Unit,
 ) {
     sectionHeader("Songs", group.stale)
@@ -214,7 +218,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.songSection(
         group.loading -> item(key = "songs_loading") { SongRowGhost() }
         group.items.isEmpty() -> emptyGroupLine("songs")
         else -> items(group.items, key = { it.id.value }) { song ->
-            SongRow(song = song, onClick = { onClick(song) })
+            SongRow(song = song, onClick = { onClick(song) }, onLongClick = { onLongClick(song) })
         }
     }
     sectionFooter("songs", group, onLoadMore)
@@ -401,6 +405,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.failedItems(
         )
     }
 }
+
 
 
 

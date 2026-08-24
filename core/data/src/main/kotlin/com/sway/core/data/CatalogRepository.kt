@@ -13,6 +13,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
+ * Detail outcome carrying the STALE marker (story 10.4, FR-4): [Stale] means
+ * fallback-cache-served after an eligible failure — surfaces render the
+ * StaleBadge. Old SwayResult-returning methods map Fresh/Stale -> Success.
+ */
+sealed interface DetailResult<out T> {
+    data class Fresh<T>(val data: T) : DetailResult<T>
+    data class Stale<T>(val data: T) : DetailResult<T>
+    data class Failed(val error: SwayError) : DetailResult<Nothing>
+}
+
+/**
  * One search group's outcome (story 10.1, group-isolation law): each of the
  * four catalog types fails/succeeds INDEPENDENTLY - a failing group carries
  * its own error without blanking siblings.
@@ -110,6 +121,16 @@ class CatalogRepository(
     suspend fun catalogPlaylist(id: com.sway.core.model.SourceId): SwayResult<CatalogPlaylist> =
         detail("catalogplaylist", id.value) { source.catalogPlaylist(id) }
 
+    /** Stale-aware detail (story 10.5–10.7 screens render the FR-4 badge). */
+    suspend fun albumDetail(id: com.sway.core.model.SourceId): DetailResult<Album> =
+        detailStale("album", id.value) { source.album(id) }
+
+    suspend fun artistDetail(id: com.sway.core.model.SourceId): DetailResult<Artist> =
+        detailStale("artist", id.value) { source.artist(id) }
+
+    suspend fun catalogPlaylistDetail(id: com.sway.core.model.SourceId): DetailResult<CatalogPlaylist> =
+        detailStale("catalogplaylist", id.value) { source.catalogPlaylist(id) }
+
     // --- internals ---------------------------------------------------------------
 
     private inner class SongPageCodecImpl : PageCodec<Song> {
@@ -153,19 +174,29 @@ class CatalogRepository(
         type: String,
         id: String,
         call: suspend () -> SwayResult<T>,
-    ): SwayResult<T> {
+    ): SwayResult<T> = when (val r = detailStale(type, id, call)) {
+        is DetailResult.Fresh -> SwayResult.Success(r.data)
+        is DetailResult.Stale -> SwayResult.Success(r.data)
+        is DetailResult.Failed -> SwayResult.Failure(r.error)
+    }
+
+    private suspend fun <T : Any> detailStale(
+        type: String,
+        id: String,
+        call: suspend () -> SwayResult<T>,
+    ): DetailResult<T> {
         val key = "$type:$id"
         return when (val fresh = call()) {
             is SwayResult.Success -> {
                 withContext(io) { cache.write(key, DetailJson.encode(fresh.data)) }
-                fresh
+                DetailResult.Fresh(fresh.data)
             }
             is SwayResult.Failure ->
-                if (!isFallbackEligible(fresh.error)) fresh
+                if (!isFallbackEligible(fresh.error)) DetailResult.Failed(fresh.error)
                 else {
                     val raw = withContext(io) { cache.readOnFailure(key) }
-                    raw?.let { DetailJson.decode<T>(type, it).let { d -> d?.let { SwayResult.Success(it) } } }
-                        ?: fresh
+                    val decoded = raw?.let { DetailJson.decode<T>(type, it) }
+                    if (decoded != null) DetailResult.Stale(decoded) else DetailResult.Failed(fresh.error)
                 }
         }
     }
