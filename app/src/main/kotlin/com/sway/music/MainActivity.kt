@@ -22,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -37,6 +38,10 @@ import com.sway.music.navigation.rememberSwayNavController
 import com.sway.music.notifications.NotificationPermissionGate
 import com.sway.music.notifications.PermissionAction
 import com.sway.music.screens.HomeScreen
+import com.sway.music.screens.search.SearchFilter
+import com.sway.music.screens.search.SearchScreen
+import com.sway.music.screens.search.SearchViewModel
+import com.sway.music.screens.search.SharedPrefsRecentSearchStore
 
 /**
  * App shell (stories 6.3 / 9.1 / 9.3 / 9.4 / 9.5): two-mode SwayTheme, the
@@ -54,7 +59,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val graph = AppDataGraph.from(applicationContext)
+        val graph = AppDataGraph.from(applicationContext, com.sway.catalog.NewPipeCatalogSource())
         val connectivity = ConnectivityObserver(this)
 
         setContent {
@@ -75,6 +80,17 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                    // Story 10.2: Search tab owns the grouped-results core.
+                    val searchScope = rememberCoroutineScope()
+                    val searchVm = remember {
+                        SearchViewModel(
+                            repository = graph.catalog,
+                            recents = SharedPrefsRecentSearchStore(applicationContext),
+                            scope = searchScope,
+                        )
+                    }
+                    val searchState by searchVm.state.collectAsStateWithLifecycle()
+
                     SwayNavHost(
                         navController = rememberSwayNavController(),
                         modifier = Modifier.fillMaxSize().padding(innerPadding),
@@ -90,6 +106,20 @@ class MainActivity : ComponentActivity() {
                                 onLikedClick = {},
                                 onPlaylistsClick = {},
                                 onHistoryClick = {},
+                            )
+                            Routes.SEARCH -> SearchScreen(
+                                state = searchState,
+                                onQueryChanged = searchVm::onQueryChanged,
+                                onSubmit = searchVm::onSubmit,
+                                onChipSelected = { filter: SearchFilter -> searchVm.onChipSelected(filter) },
+                                onRetry = searchVm::onRetry,
+                                onClearQuery = searchVm::onClearQuery,
+                                onRecentSelected = searchVm::onRecentSelected,
+                                onClearRecents = searchVm::onClearRecents,
+                                onSongClick = { },
+                                onAlbumClick = { },
+                                onArtistClick = { },
+                                onPlaylistClick = { },
                             )
                             else -> Unit // NavHost destinations own these routes
                         }

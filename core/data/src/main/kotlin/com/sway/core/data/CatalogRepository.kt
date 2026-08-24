@@ -8,6 +8,9 @@ import com.sway.core.model.PagedResult
 import com.sway.core.model.Song
 import com.sway.core.model.SwayError
 import com.sway.core.model.SwayResult
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * One search group's outcome (story 10.1, group-isolation law): each of the
@@ -45,8 +48,23 @@ data class SearchResults(
  */
 class CatalogRepository(
     private val source: CatalogSource,
-    private val cache: FallbackCacheStore,
+    cacheFactory: () -> FallbackCacheStore,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
+
+    /**
+     * LAZY cache construction: creating the store must never touch disk on the
+     * caller's thread — the factory runs on first use, inside [io]-confined
+     * paths only (AD-10 startup law).
+     */
+    private val cache: FallbackCacheStore by lazy(cacheFactory)
+
+    /** Convenience for callers already holding a constructed store (tests). */
+    constructor(
+        source: CatalogSource,
+        cache: FallbackCacheStore,
+        io: CoroutineDispatcher = Dispatchers.IO,
+    ) : this(source, { cache }, io)
 
     /** Page codec pair enabling stale service for one search group. */
     interface PageCodec<T> {
@@ -102,14 +120,14 @@ class CatalogRepository(
         val pageToken = suffix.removePrefix(":").takeIf { it.isNotEmpty() }
         return when (val fresh = call(query, pageToken)) {
             is SwayResult.Success -> {
-                codec?.let { cache.write(key, it.encode(fresh.data)) }
+                withContext(io) { codec?.let { cache.write(key, it.encode(fresh.data)) } }
                 GroupResult.Fresh(fresh.data)
             }
             is SwayResult.Failure -> {
                 if (!isFallbackEligible(fresh.error) || codec == null) {
                     return GroupResult.Failed(fresh.error)
                 }
-                val cachedRaw = cache.readOnFailure(key)
+                val cachedRaw = withContext(io) { cache.readOnFailure(key) }
                     ?: return GroupResult.Failed(fresh.error)
                 val items = codec.decode(cachedRaw)
                 if (items.isEmpty()) return GroupResult.Failed(fresh.error)
@@ -126,13 +144,16 @@ class CatalogRepository(
         val key = "$type:$id"
         return when (val fresh = call()) {
             is SwayResult.Success -> {
-                cache.write(key, DetailJson.encode(fresh.data))
+                withContext(io) { cache.write(key, DetailJson.encode(fresh.data)) }
                 fresh
             }
             is SwayResult.Failure ->
                 if (!isFallbackEligible(fresh.error)) fresh
-                else cache.readOnFailure(key)?.let { DetailJson.decode<T>(type, it).let { d -> d?.let { SwayResult.Success(it) } } }
-                    ?: fresh
+                else {
+                    val raw = withContext(io) { cache.readOnFailure(key) }
+                    raw?.let { DetailJson.decode<T>(type, it).let { d -> d?.let { SwayResult.Success(it) } } }
+                        ?: fresh
+                }
         }
     }
 

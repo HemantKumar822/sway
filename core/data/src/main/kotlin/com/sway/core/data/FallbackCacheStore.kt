@@ -29,13 +29,12 @@ class FallbackCacheStore(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
-    init {
-        dir.mkdirs()
-    }
-
     /** Write-through hook: store [payloadJson] under [key]. Never throws. */
     fun write(key: String, payloadJson: String) {
         try {
+            // Directory creation is LAZY (never in init): constructing this store
+            // must not perform disk work on the main thread (AD-10 startup law).
+            dir.mkdirs()
             val target = fileFor(key)
             val tmp = File(dir, target.name + ".tmp")
             tmp.writeText(
