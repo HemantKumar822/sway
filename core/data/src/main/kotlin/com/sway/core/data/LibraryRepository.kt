@@ -56,16 +56,7 @@ class LibraryRepository(
         }
     }
 
-    private inline fun <T> guarded(block: () -> T): SwayResult<T> = try {
-        SwayResult.Success(block())
-    } catch (e: java.io.IOException) {
-        SwayResult.Failure(SwayError.Storage)
-    } catch (e: android.database.SQLException) {
-        SwayResult.Failure(SwayError.Storage)
-    } catch (e: IllegalStateException) {
-        // Room throws IllegalStateException for misuse like a closed database.
-        SwayResult.Failure(SwayError.Storage)
-    }
+    private inline fun <T> guarded(block: () -> T): SwayResult<T> = storageGuarded(block)
 }
 
 /** Row -> model (like state intentionally NOT part of the core:model Song). */

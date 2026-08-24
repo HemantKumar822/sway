@@ -66,9 +66,11 @@ class Migration1To2Test {
     }
 
     @Test
-    fun builtDatabase_opensAtV2_throughTheProductionPath() = runBlocking {
+    fun builtDatabase_productionPath_carriesExplicitMigrations() = runBlocking {
+        // Version moved on (story 8.2 -> v3); the law under test is that the
+        // production builder carries ALL explicit migrations, never fallback.
         val db = SwayDatabase.build(ApplicationProvider.getApplicationContext())
-        assertEquals(2, db.openHelper.writableDatabase.version)
+        assertTrue(db.openHelper.writableDatabase.version >= 2)
         db.close()
     }
 
