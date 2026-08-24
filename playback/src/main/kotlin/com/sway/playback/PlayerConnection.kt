@@ -590,7 +590,7 @@ class PlayerConnection private constructor(
      * collection, never a synchronous read); repeat mode is restored by the
      * SERVICE onto the player before any queue build and mirrors from there.
      */
-    internal fun attachSettings(repo: com.sway.core.data.SettingsRepository) {
+    fun attachSettings(repo: com.sway.core.data.SettingsRepository) {
         settings = repo
         scope.launch {
             try {

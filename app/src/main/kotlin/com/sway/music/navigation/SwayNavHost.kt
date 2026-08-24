@@ -46,6 +46,8 @@ fun rememberSwayNavController(): NavHostController = rememberNavController()
 /**
  * @param startTab initial tab (story 9.4: LIBRARY when launching offline)
  * @param offlineBannerVisible app-wide banner state (story 9.4)
+ * @param miniPlayer story 12.1 slot rendered ABOVE the NavigationBar on every
+ *   tab (FR-27 global presence); null = no session layer.
  */
 @Composable
 fun SwayNavHost(
@@ -54,6 +56,7 @@ fun SwayNavHost(
     startTab: String = Routes.HOME,
     offlineBannerVisible: Boolean = false,
     snackbarHostState: androidx.compose.material3.SnackbarHostState? = null,
+    miniPlayer: (@Composable () -> Unit)? = null,
     screen: @Composable (route: String) -> Unit = { route -> PlaceholderScreen(labelFor(route)) },
     detailScreen: @Composable (route: String, id: String) -> Unit = { route, _ ->
         PlaceholderScreen(labelFor(route))
@@ -75,17 +78,22 @@ fun SwayNavHost(
             }
         },
         bottomBar = {
-            NavigationBar {
-                TOP_TABS.forEach { tab ->
-                    val selected = currentRoute == tab.route
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = {
-                            navController.navigateToTab(tab.route)
-                        },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label) },
-                    )
+            Column {
+                // Story 12.1: Mini Player persists above the tab bar on ALL tabs
+                // whenever a session exists (FR-27); snackbar z-order stays above.
+                miniPlayer?.invoke()
+                NavigationBar {
+                    TOP_TABS.forEach { tab ->
+                        val selected = currentRoute == tab.route
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = {
+                                navController.navigateToTab(tab.route)
+                            },
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label) },
+                        )
+                    }
                 }
             }
         },

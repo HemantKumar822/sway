@@ -5,11 +5,13 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
@@ -30,6 +32,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sway.core.model.SourceId
 import com.sway.core.data.AppDataGraph
+import com.sway.core.model.Quality
 import com.sway.designui.theme.SwayTheme
 import com.sway.designui.theme.ThemeConfig
 import com.sway.music.connectivity.ConnectivityObserver
@@ -39,12 +42,20 @@ import com.sway.music.navigation.navigateToTab
 import com.sway.music.navigation.rememberSwayNavController
 import com.sway.music.notifications.NotificationPermissionGate
 import com.sway.music.notifications.PermissionAction
+import com.sway.music.playback.QualityChip
+import com.sway.music.playback.QualitySelectorSheet
+import com.sway.music.playback.SwayPlaybackHost
 import com.sway.music.screens.detail.AlbumDetailScreen
 import com.sway.music.screens.detail.AlbumDetailViewModel
 import com.sway.music.screens.detail.ArtistDetailScreen
 import com.sway.music.screens.detail.ArtistDetailViewModel
 import com.sway.music.screens.detail.CatalogPlaylistDetailScreen
 import com.sway.music.screens.detail.CatalogPlaylistDetailViewModel
+import com.sway.music.screens.detail.PlaybackRequests
+import com.sway.music.screens.detail.PlaybackRequest
+import com.sway.music.screens.player.FullPlayerScreen
+import com.sway.music.screens.player.MiniPlayerBar
+import com.sway.music.screens.player.QueueSheet
 import com.sway.music.screens.library.HistoryScreen
 import com.sway.music.screens.library.LikedSongsScreen
 import com.sway.music.screens.library.LibraryHubScreen
@@ -59,6 +70,7 @@ import com.sway.music.screens.menu.rawCatalogUrl
 import com.sway.music.screens.menu.shareRawUrl
 import com.sway.music.screens.search.SearchFilter
 import com.sway.music.screens.search.SearchGroup
+import com.sway.music.screens.search.SearchPhase
 import com.sway.music.screens.search.SearchScreen
 import com.sway.music.screens.search.SearchViewModel
 import com.sway.music.screens.search.SharedPrefsRecentSearchStore
@@ -130,6 +142,49 @@ class MainActivity : ComponentActivity() {
                     val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
                     val appContext = applicationContext
 
+                    // --- Stories 12.1-12.4: playback host + player surfaces ---
+                    // Settings ride the graph (5.1 factory; DataStore stays
+                    // behind the core:data seam — AR-1/AR-3).
+                    val settings = graph.settings
+                    val playbackHost = remember {
+                        SwayPlaybackHost(appContext, searchScope, settings, graph.sessionRestore)
+                    }
+                    LaunchedEffect(Unit) {
+                        playbackHost.start() // AR-9 post-composition hook (FR-25/FR-27)
+                    }
+                    val playback by playbackHost.uiState.collectAsStateWithLifecycle()
+                    val audioQuality by settings.audioQuality
+                        .collectAsStateWithLifecycle(initialValue = Quality.AUTO)
+                    var fullOpen by remember { mutableStateOf(false) }
+                    var queueOpen by remember { mutableStateOf(false) }
+                    var qualityOpen by remember { mutableStateOf(false) }
+
+                    // AD-6 tick scoping: ONE position subscription, alive only
+                    // while a session exists; feeds Mini hairline + scrubber.
+                    val livePosition = if (playback.currentItem != null) {
+                        playbackHost.positionFlow()
+                            .collectAsStateWithLifecycle(initialValue = 0L).value
+                    } else {
+                        0L
+                    }
+
+                    val currentLiked = playback.currentItem?.let { cur ->
+                        likedSongs.any { it.id == cur.song.id }
+                    } ?: false
+
+                    fun toggleLike(song: com.sway.core.model.Song) = searchScope.launch {
+                        if (likedSongs.any { it.id == song.id }) {
+                            graph.library.clearLiked(song.id)
+                            snackbarHostState.showSnackbar("Removed from Liked Songs")
+                        } else {
+                            graph.library.setLiked(song)
+                            snackbarHostState.showSnackbar("Added to Liked Songs")
+                        }
+                    }
+
+                    BackHandler(enabled = queueOpen) { queueOpen = false }
+                    BackHandler(enabled = fullOpen && !queueOpen) { fullOpen = false }
+
                     menuSongState?.let { selected ->
                         SongContextMenu(
                             song = selected,
@@ -137,19 +192,16 @@ class MainActivity : ComponentActivity() {
                             playlists = playlistSummaries,
                             onAction = { action ->
                                 when (action) {
-                                    SongMenuAction.PLAY_NEXT ->
-                                        searchScope.launch { snackbarHostState.showSnackbar("Playing next") }
-                                    SongMenuAction.ADD_TO_QUEUE ->
-                                        searchScope.launch { snackbarHostState.showSnackbar("Added to queue") }
-                                    SongMenuAction.TOGGLE_LIKE -> searchScope.launch {
-                                        if (likedSongs.any { it.id == selected.id }) {
-                                            graph.library.clearLiked(selected.id)
-                                            snackbarHostState.showSnackbar("Removed from Liked Songs")
-                                        } else {
-                                            graph.library.setLiked(selected)
-                                            snackbarHostState.showSnackbar("Added to Liked Songs")
-                                        }
+                                    SongMenuAction.PLAY_NEXT -> searchScope.launch {
+                                        playbackHost.playNext(selected)
+                                        snackbarHostState.showSnackbar("Playing next")
                                     }
+                                    SongMenuAction.ADD_TO_QUEUE -> searchScope.launch {
+                                        playbackHost.addToQueue(selected)
+                                        snackbarHostState.showSnackbar("Added to queue")
+                                    }
+                                    SongMenuAction.OPEN_QUEUE -> queueOpen = true
+                                    SongMenuAction.TOGGLE_LIKE -> toggleLike(selected)
                                     SongMenuAction.GO_TO_ALBUM -> selected.albumId?.let {
                                         navController.navigate(Routes.album(it.value))
                                     }
@@ -183,6 +235,9 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    // Overlays stack ABOVE the shell (Full > Queue > Quality);
+                    // the Mini layer lives INSIDE the shell's bottomBar slot.
+                    Box(modifier = Modifier.fillMaxSize()) {
                     SwayNavHost(
                         navController = navController,
                         modifier = Modifier.fillMaxSize().padding(innerPadding),
@@ -190,6 +245,19 @@ class MainActivity : ComponentActivity() {
                         offlineBannerVisible = !online,
                         // Snackbar z-order ABOVE tab bar (UX-DR5 substrate).
                         snackbarHostState = snackbarHostState,
+                        // Story 12.1: global Mini layer (FR-27) above the tabs.
+                        miniPlayer = {
+                            MiniPlayerBar(
+                                state = playback,
+                                visible = !playbackHost.barHidden && playback.currentItem != null,
+                                positionMs = livePosition,
+                                onTogglePlayPause = playbackHost::togglePlayPause,
+                                onNext = playbackHost::next,
+                                onExpand = { fullOpen = true },
+                                onOpenQueue = { queueOpen = true },
+                                onHide = { playbackHost.hideBar() },
+                            )
+                        },
                         screen = { route ->
                             when (route) {
                                 Routes.HOME -> HomeScreen(
@@ -215,7 +283,22 @@ class MainActivity : ComponentActivity() {
                                     onClearQuery = searchVm::onClearQuery,
                                     onRecentSelected = searchVm::onRecentSelected,
                                     onClearRecents = searchVm::onClearRecents,
-                                    onSongClick = { },
+                                    // FR-22 matrix entry: Songs-group context at tap.
+                                    onSongClick = { song ->
+                                        val songs = (searchState.phase as? SearchPhase.Results)
+                                            ?.content?.songs?.items.orEmpty()
+                                        val idx = songs.indexOfFirst { it.id == song.id }
+                                        playbackHost.play(
+                                            if (idx >= 0) {
+                                                PlaybackRequests.build(
+                                                    songs,
+                                                    PlaybackRequests.Mode.FromIndex(idx),
+                                                )
+                                            } else {
+                                                PlaybackRequest(items = listOf(song), startIndex = 0, shuffled = false)
+                                            },
+                                        )
+                                    },
                                     onSongLongClick = { menuSongState = it },
                                     onAlbumClick = { album -> navController.navigate(Routes.album(album.id.value)) },
                                     onArtistClick = { artist -> navController.navigate(Routes.artist(artist.id.value)) },
@@ -226,13 +309,13 @@ class MainActivity : ComponentActivity() {
                                 // Stories 11.1/11.2: owned-data surfaces (instant, offline).
                                 Routes.LIKED -> LikedSongsScreen(
                                     songs = likedSongs,
-                                    onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                    onPlaybackRequest = { playbackHost.play(it) },
                                     onSongLongClick = { menuSongState = it },
                                 )
                                 Routes.HISTORY -> HistoryScreen(
                                     entries = historyEntries,
                                     nowMillis = nowMillis,
-                                    onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                    onPlaybackRequest = { playbackHost.play(it) },
                                     onSongLongClick = { menuSongState = it },
                                 )
                                 // Story 11.4: Library hub aggregation.
@@ -240,7 +323,7 @@ class MainActivity : ComponentActivity() {
                                     likedSongs = likedSongs,
                                     playlists = playlistSummaries,
                                     historyCount = historyEntries.size,
-                                    onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                    onPlaybackRequest = { playbackHost.play(it) },
                                     onOpenPlaylist = { pid, _ ->
                                         navController.navigate(Routes.playlist(pid))
                                     },
@@ -264,7 +347,7 @@ class MainActivity : ComponentActivity() {
                                     AlbumDetailScreen(
                                         state = vm.state.collectAsStateWithLifecycle().value,
                                         onRetry = vm::retry,
-                                        onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                        onPlaybackRequest = { playbackHost.play(it) },
                                         onArtistClick = { artistId ->
                                             navController.navigate(Routes.artist(artistId.value))
                                         },
@@ -278,7 +361,7 @@ class MainActivity : ComponentActivity() {
                                     ArtistDetailScreen(
                                         state = vm.state.collectAsStateWithLifecycle().value,
                                         onRetry = vm::retry,
-                                        onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                        onPlaybackRequest = { playbackHost.play(it) },
                                         onSongLongClick = { menuSongState = it },
                                     )
                                 }
@@ -289,7 +372,7 @@ class MainActivity : ComponentActivity() {
                                     CatalogPlaylistDetailScreen(
                                         state = vm.state.collectAsStateWithLifecycle().value,
                                         onRetry = vm::retry,
-                                        onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                        onPlaybackRequest = { playbackHost.play(it) },
                                         onSongLongClick = { menuSongState = it },
                                     )
                                 }
@@ -311,7 +394,7 @@ class MainActivity : ComponentActivity() {
                                         state = PlaylistEditorUiState(songs = songs, editMode = editMode),
                                         likedSongs = likedSongs,
                                         playlists = playlistSummaries,
-                                        onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                        onPlaybackRequest = { playbackHost.play(it) },
                                         onToggleEditMode = { editorVm.toggleEditMode() },
                                         onRemoveAt = { index -> editorVm.removeAt(index) },
                                         onMove = { from, to -> editorVm.move(from, to) },
@@ -332,6 +415,53 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                     )
+
+                    // Story 12.2: Full Player overlay (state never lost on collapse).
+                    FullPlayerScreen(
+                        state = playback,
+                        visible = fullOpen && playback.currentItem != null,
+                        positionMs = livePosition,
+                        liked = currentLiked,
+                        onCollapse = { fullOpen = false },
+                        onTogglePlayPause = playbackHost::togglePlayPause,
+                        onNext = playbackHost::next,
+                        onPrevious = playbackHost::previous,
+                        onSeek = { playbackHost.seekTo(it) },
+                        onToggleShuffle = {
+                            playbackHost.setShuffleEnabled(!playback.shuffleEnabled)
+                        },
+                        onCycleRepeat = { playbackHost.cycleRepeatMode() },
+                        onToggleLike = {
+                            playback.currentItem?.let { toggleLike(it.song) }
+                        },
+                        onOpenQueue = { queueOpen = true },
+                        qualityChip = {
+                            QualityChip(current = audioQuality, onOpen = { qualityOpen = true })
+                        },
+                    )
+
+                    // Story 12.3: Queue sheet over everything.
+                    QueueSheet(
+                        visible = queueOpen && playback.currentItem != null,
+                        items = playbackHost.currentQueue(),
+                        currentId = playback.currentItem?.id,
+                        onJump = { playbackHost.jumpTo(it) },
+                        onRemoveAt = { playbackHost.removeAt(it) },
+                        onMove = { from, to -> playbackHost.moveQueueItem(from, to) },
+                        onClearQueue = { playbackHost.clearQueue() },
+                        onDismiss = { queueOpen = false },
+                    )
+
+                    // Story 12.4: quality selector (OQ-6 gate lives in the policy).
+                    QualitySelectorSheet(
+                        visible = qualityOpen,
+                        current = audioQuality,
+                        onSelect = { selected ->
+                            searchScope.launch { settings.setAudioQuality(selected) }
+                        },
+                        onDismiss = { qualityOpen = false },
+                    )
+                    }
                 }
             }
         }

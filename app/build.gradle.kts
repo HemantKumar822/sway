@@ -40,6 +40,12 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            all { test ->
+                // E12: JVM tests cannot host the media3 session binder (null
+                // ComponentName in Robolectric's onServiceConnected). The host
+                // reads this and skips binding — devices are unaffected.
+                test.systemProperty("sway.sessionBinding", "off")
+            }
         }
     }
 }

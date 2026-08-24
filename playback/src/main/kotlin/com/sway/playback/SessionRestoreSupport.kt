@@ -25,8 +25,9 @@ internal const val RESTORE_SEEK_TIMEOUT_MS: Long = 10_000L
  * first-run path: uiState simply stays Idle (no Mini-Player session marker).
  * Restored shuffle is a quiet flag: the saved order already reflects the
  * user's shuffle, so nothing reorders now.
+ * Public since E12: :app's SwayPlaybackHost is the production caller.
  */
-internal fun PlayerConnection.attachSessionStore(store: com.sway.core.data.SessionRestoreRepository) {
+fun PlayerConnection.attachSessionStore(store: com.sway.core.data.SessionRestoreRepository) {
     sessionStore = store
     scope.launch {
         val saved = try {

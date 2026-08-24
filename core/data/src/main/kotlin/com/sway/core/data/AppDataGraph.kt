@@ -17,6 +17,8 @@ class AppDataGraph private constructor(
     val history: HistoryRepository,
     val sessionRestore: SessionRestoreRepository,
     val catalog: CatalogRepository,
+    /** Story 12.4 consumption of 5.1: quality chip + mode persistence source. */
+    val settings: SettingsRepository,
 ) {
     companion object {
         @Volatile private var instance: AppDataGraph? = null
@@ -52,6 +54,7 @@ class AppDataGraph private constructor(
                     catalogSource,
                     cacheFactory = { FallbackCacheStore(java.io.File(context.cacheDir, "fallback_cache")) },
                 ),
+                settings = DataStoreSettingsRepository(SettingsDataStore.create(context)),
             )
         }
     }

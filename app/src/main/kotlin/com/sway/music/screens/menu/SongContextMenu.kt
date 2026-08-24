@@ -30,6 +30,9 @@ import com.sway.core.model.Song
 enum class SongMenuAction {
     PLAY_NEXT,
     ADD_TO_QUEUE,
+
+    /** Story 12.3: explicit queue-sheet entry from any song row [PROVISIONAL per UX §3.2]. */
+    OPEN_QUEUE,
     ADD_TO_PLAYLIST,
     TOGGLE_LIKE,
     GO_TO_ALBUM,
@@ -53,6 +56,7 @@ fun shareRawUrl(context: Context, url: String) {
 fun visibleActions(song: Song, liked: Boolean): List<SongMenuAction> = buildList {
     add(SongMenuAction.PLAY_NEXT)
     add(SongMenuAction.ADD_TO_QUEUE)
+    add(SongMenuAction.OPEN_QUEUE)
     add(SongMenuAction.ADD_TO_PLAYLIST)
     add(SongMenuAction.TOGGLE_LIKE)
     if (song.albumId != null) add(SongMenuAction.GO_TO_ALBUM)
@@ -63,6 +67,7 @@ fun visibleActions(song: Song, liked: Boolean): List<SongMenuAction> = buildList
 fun actionLabel(action: SongMenuAction, song: Song, liked: Boolean): String = when (action) {
     SongMenuAction.PLAY_NEXT -> "Play next"
     SongMenuAction.ADD_TO_QUEUE -> "Add to queue"
+    SongMenuAction.OPEN_QUEUE -> "Open queue"
     SongMenuAction.ADD_TO_PLAYLIST -> "Add to playlist…"
     SongMenuAction.TOGGLE_LIKE -> if (liked) "Unlike" else "Like"
     SongMenuAction.GO_TO_ALBUM -> "Go to album"

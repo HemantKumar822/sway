@@ -32,6 +32,8 @@ class SongMenuLawTest {
             listOf(
                 SongMenuAction.PLAY_NEXT,
                 SongMenuAction.ADD_TO_QUEUE,
+                // Story 12.3: explicit queue-sheet entry joins the cluster.
+                SongMenuAction.OPEN_QUEUE,
                 SongMenuAction.ADD_TO_PLAYLIST,
                 SongMenuAction.TOGGLE_LIKE,
                 SongMenuAction.SHARE_URL,
