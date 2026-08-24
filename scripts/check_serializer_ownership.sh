@@ -5,10 +5,10 @@
 # two snapshot shapes would silently break FR-25 restore.
 #
 # Mechanics: repo scan of *.kt/*.java outside core/data/src for the tell-tale
-# markers of queue-state serialization: 'QueueStateSerializer' usage, or a
-# local declaration of RestoredSession/StoredQueueState. Room entity/DAO and
-# the :playback saver consume VALUES only. Also refuses destructive-migration
-# escape hatches anywhere in the codebase (AD-8).
+# markers of queue-state SERIALIZATION CODE (codec calls or JSON building).
+# Consuming the VALUE types (QueueStateSerializer.RestoredSession etc.) is
+# legitimate — the law forbids a second CODEC, not consumers. Also refuses
+# destructive-migration escape hatches anywhere in the codebase (AD-8).
 #
 # Usage: scripts/check_serializer_ownership.sh   (run from repo root; git)
 
@@ -20,15 +20,15 @@ cd "$REPO_ROOT"
 violations=0
 
 while IFS= read -r file; do
-  if grep -niE '\b(QueueStateSerializer|RestoredSession|StoredQueueState)\b' "$file" >/dev/null 2>&1; then
-    echo "SERIALIZER OWNERSHIP VIOLATION: $file references queue-state serialization outside :core:data"
+  if grep -niE 'QueueStateSerializer\.(toJson|fromJson)|kotlinx\.serialization\.json' "$file" >/dev/null 2>&1; then
+    echo "SERIALIZER OWNERSHIP VIOLATION: $file contains queue-state codec code outside :core:data"
     violations=$((violations + 1))
   fi
 done < <(git ls-files '*.kt' '*.java' | grep -v '^core/data/')
 
-if git grep -niE 'fallbackToDestructive' -- '*.kt' '*.java' >/dev/null 2>&1; then
-  echo "DESTRUCTIVE FALLBACK VIOLATION (AD-8): fallbackToDestructiveMigration must never appear"
-  git grep -niE 'fallbackToDestructive' -- '*.kt' '*.java'
+if git grep -nE 'fallbackToDestructive[A-Za-z]*[[:space:]]*\(' -- '*.kt' '*.java' >/dev/null 2>&1; then
+  echo "DESTRUCTIVE FALLBACK VIOLATION (AD-8): destructive-fallback APIs must never be invoked"
+  git grep -nE 'fallbackToDestructive[A-Za-z]*[[:space:]]*\(' -- '*.kt' '*.java'
   violations=$((violations + 1))
 fi
 

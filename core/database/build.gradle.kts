@@ -15,6 +15,12 @@ android {
         minSdk = 26
     }
 
+    sourceSets {
+        getByName("test") {
+            assets.srcDir("$projectDir/schemas")
+        }
+    }
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -45,4 +51,5 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.androidx.room.testing)
 }
