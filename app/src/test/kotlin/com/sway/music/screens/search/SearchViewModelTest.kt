@@ -52,8 +52,15 @@ class SearchViewModelTest {
             SwayResult.Success(PagedResult.singlePage(emptyList())),
     ) : CatalogSource {
         var searchCalls = 0
-        override suspend fun searchSongs(query: String, pageToken: String?) =
-            songsResult.also { searchCalls++ }
+        val tokensRequested = mutableListOf<String?>()
+        var songsNextPage: SwayResult<PagedResult<Song>> =
+            SwayResult.Success(PagedResult.singlePage(emptyList()))
+
+        override suspend fun searchSongs(query: String, pageToken: String?): SwayResult<PagedResult<Song>> {
+            searchCalls++
+            tokensRequested.add(pageToken)
+            return if (pageToken != null) songsNextPage else songsResult
+        }
         override suspend fun searchAlbums(query: String, pageToken: String?) = albumsResult
         override suspend fun searchArtists(query: String, pageToken: String?) = artistsResult
         override suspend fun searchCatalogPlaylists(query: String, pageToken: String?) = playlistsResult
@@ -217,6 +224,96 @@ class SearchViewModelTest {
         val content = (vm.state.value.phase as SearchPhase.Results).content
         assertTrue(content.songs.stale)
         assertEquals(listOf("Song s1"), content.songs.items.map { it.title })
+    }
+
+    // --- Story 10.3: pagination (FR-2) ----------------------------------------
+
+    private fun pagedSource(): FakeCatalogSource {
+        val source = FakeCatalogSource(
+            songsResult = SwayResult.Success(
+                PagedResult.of(listOf(song("s1"), song("s2")), "t1"),
+            ),
+        )
+        return source
+    }
+
+    @Test
+    fun loadMore_appendsDeduped_adversarialDuplicatePage() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val source = pagedSource()
+        source.songsNextPage = SwayResult.Success(
+            PagedResult.singlePage(listOf(song("s2"), song("s3"))), // s2 duplicates page 1
+        )
+        val (vm, _) = newVm(source, CoroutineScope(dispatcher), dispatcher)
+        vm.onQueryChanged("neon")
+        advanceUntilIdle()
+
+        vm.onLoadMore(SearchGroup.SONGS)
+        advanceUntilIdle()
+        val songs = (vm.state.value.phase as SearchPhase.Results).content.songs
+        assertEquals(listOf("Song s1", "Song s2", "Song s3"), songs.items.map { it.title })
+        assertEquals(null, songs.nextPageToken)
+        assertTrue(songs.canLoadMore.not())
+    }
+
+    @Test
+    fun loadMore_inFlightGuard_rapidTaps_collapseToOneRequest() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val source = pagedSource()
+        source.songsNextPage = SwayResult.Success(PagedResult.singlePage(listOf(song("s3"))))
+        val (vm, _) = newVm(source, CoroutineScope(dispatcher), dispatcher)
+        vm.onQueryChanged("neon")
+        advanceUntilIdle()
+
+        // Rapid repeated triggers BEFORE the response lands: only one request.
+        vm.onLoadMore(SearchGroup.SONGS)
+        vm.onLoadMore(SearchGroup.SONGS)
+        vm.onLoadMore(SearchGroup.SONGS)
+        advanceUntilIdle()
+
+        assertEquals(listOf<String?>(null, "t1"), source.tokensRequested)
+    }
+
+    @Test
+    fun loadMore_exhausted_endLaw_noFurtherRequests() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val source = pagedSource()
+        source.songsNextPage = SwayResult.Success(PagedResult.singlePage(listOf(song("s3"))))
+        val (vm, _) = newVm(source, CoroutineScope(dispatcher), dispatcher)
+        vm.onQueryChanged("neon")
+        advanceUntilIdle()
+        vm.onLoadMore(SearchGroup.SONGS)
+        advanceUntilIdle()
+
+        // Exhausted: further triggers draw zero requests.
+        vm.onLoadMore(SearchGroup.SONGS)
+        vm.onLoadMore(SearchGroup.SONGS)
+        advanceUntilIdle()
+        assertEquals(2, source.searchCalls)
+    }
+
+    @Test
+    fun loadMore_failure_keepsItems_appendError_retryRecovers() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val source = pagedSource()
+        source.songsNextPage = SwayResult.Failure(SwayError.RateLimited)
+        val (vm, _) = newVm(source, CoroutineScope(dispatcher), dispatcher)
+        vm.onQueryChanged("neon")
+        advanceUntilIdle()
+        vm.onLoadMore(SearchGroup.SONGS)
+        advanceUntilIdle()
+
+        var songs = (vm.state.value.phase as SearchPhase.Results).content.songs
+        assertEquals(SwayErrorUiState.RateLimited, songs.appendError)
+        assertEquals(listOf("Song s1", "Song s2"), songs.items.map { it.title })
+
+        // Recovery on retry preserves items and appends.
+        source.songsNextPage = SwayResult.Success(PagedResult.singlePage(listOf(song("s3"))))
+        vm.onLoadMore(SearchGroup.SONGS)
+        advanceUntilIdle()
+        songs = (vm.state.value.phase as SearchPhase.Results).content.songs
+        assertEquals(listOf("Song s1", "Song s2", "Song s3"), songs.items.map { it.title })
+        assertEquals(null, songs.appendError)
     }
 }
 

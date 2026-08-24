@@ -113,6 +113,9 @@ class MainActivity : ComponentActivity() {
                                 onSubmit = searchVm::onSubmit,
                                 onChipSelected = { filter: SearchFilter -> searchVm.onChipSelected(filter) },
                                 onRetry = searchVm::onRetry,
+                                onLoadMore = { group: com.sway.music.screens.search.SearchGroup ->
+                                    searchVm.onLoadMore(group)
+                                },
                                 onClearQuery = searchVm::onClearQuery,
                                 onRecentSelected = searchVm::onRecentSelected,
                                 onClearRecents = searchVm::onClearRecents,

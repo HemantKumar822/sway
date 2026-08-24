@@ -2,6 +2,10 @@ package com.sway.music.screens.search
 
 import com.sway.core.data.GroupResult
 import com.sway.core.data.CatalogRepository
+import com.sway.core.model.Album
+import com.sway.core.model.Artist
+import com.sway.core.model.CatalogPlaylist
+import com.sway.core.model.Song
 import com.sway.core.model.SwayError
 import com.sway.core.model.SwayErrorUiState
 import com.sway.core.model.toUiState
@@ -34,6 +38,7 @@ class SearchViewModel(
 
     private var debounceJob: Job? = null
     private var searchJob: Job? = null
+    private val loadMoreJobs = mutableMapOf<SearchGroup, Job>()
 
     init {
         scope.launch {
@@ -98,16 +103,115 @@ class SearchViewModel(
         scope.launch(io) { recents.save(emptyList()) }
     }
 
+    /**
+     * Per-group load-more (story 10.3, FR-2): ONE guarded entry point shared
+     * by the button and the sentinel. In-flight guard collapses rapid repeat
+     * triggers to a single request; appends dedupe by Source ID; an exhausted
+     * group (null token) never fires again.
+     */
+    fun onLoadMore(group: SearchGroup) {
+        val state = _state.value
+        val content = (state.phase as? SearchPhase.Results)?.content ?: return
+        val query = state.submittedQuery ?: return
+        if (loadMoreJobs[group]?.isActive == true) return
+        when (group) {
+            SearchGroup.SONGS ->
+                beginLoadMore(content.songs, group, query, call = { q, t -> repository.songsPage(q, t) })
+            SearchGroup.ALBUMS ->
+                beginLoadMore(content.albums, group, query, call = { q, t -> repository.albumsPage(q, t) })
+            SearchGroup.ARTISTS ->
+                beginLoadMore(content.artists, group, query, call = { q, t -> repository.artistsPage(q, t) })
+            SearchGroup.PLAYLISTS ->
+                beginLoadMore(content.playlists, group, query, call = { q, t -> repository.playlistsPage(q, t) })
+        }
+    }
+
     // --- internals ------------------------------------------------------------
 
     private fun cancelSearchToIdle() {
         searchJob?.cancel()
+        cancelLoadMoreJobs()
         _state.update { it.copy(phase = SearchPhase.Idle) }
+    }
+
+    private fun cancelLoadMoreJobs() {
+        loadMoreJobs.values.forEach { it.cancel() }
+        loadMoreJobs.clear()
+    }
+
+    /** Generic typed mutation of one group's state inside the Results phase. */
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> mutateGroup(group: SearchGroup, transform: (GroupState<T>) -> GroupState<T>) {
+        _state.update { st ->
+            val content = (st.phase as? SearchPhase.Results)?.content ?: return@update st
+            val next = when (group) {
+                SearchGroup.SONGS ->
+                    content.copy(songs = transform(content.songs as GroupState<T>) as GroupState<Song>)
+                SearchGroup.ALBUMS ->
+                    content.copy(albums = transform(content.albums as GroupState<T>) as GroupState<Album>)
+                SearchGroup.ARTISTS ->
+                    content.copy(artists = transform(content.artists as GroupState<T>) as GroupState<Artist>)
+                SearchGroup.PLAYLISTS ->
+                    content.copy(playlists = transform(content.playlists as GroupState<T>) as GroupState<CatalogPlaylist>)
+            }
+            st.copy(phase = SearchPhase.Results(next))
+        }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun <T> beginLoadMore(
+        current: GroupState<T>,
+        group: SearchGroup,
+        query: String,
+        call: suspend (String, String) -> GroupResult<T>,
+    ) {
+        if (!current.canLoadMore) return
+        val token = current.nextPageToken ?: return
+        mutateGroup<T>(group) { it.copy(loadingMore = true, appendError = null) }
+        loadMoreJobs[group] = scope.launch {
+            val result = call(query, token)
+            // A newer submission superseded this page request — drop it.
+            if (_state.value.submittedQuery != query) {
+                loadMoreJobs.remove(group)
+                return@launch
+            }
+            mutateGroup<T>(group) { g ->
+                when (result) {
+                    is GroupResult.Fresh -> appendPage(g, result.page.items, result.page.normalizedNextPageToken, stale = false)
+                    is GroupResult.Stale -> appendPage(g, result.page.items, result.page.normalizedNextPageToken, stale = true)
+                    is GroupResult.Failed -> g.copy(loadingMore = false, appendError = categoryOf(result.error))
+                }
+            }
+            loadMoreJobs.remove(group)
+        }
+    }
+
+    /** Dedupe-by-Source-ID append law (FR-2): a duplicate page adds nothing. */
+    private fun <T> appendPage(g: GroupState<T>, items: List<T>, nextToken: String?, stale: Boolean): GroupState<T> {
+        val known = g.items.mapTo(mutableSetOf()) { idOf(it) }
+        val appended = items.filter { idOf(it) !in known }
+        return g.copy(
+            items = g.items + appended,
+            nextPageToken = nextToken,
+            loadingMore = false,
+            appendError = null,
+            stale = g.stale || stale,
+        )
+    }
+
+    /** Stable list keys = Source ID (AR-14); dedupe identity rides the same law. */
+    private fun <T> idOf(item: T): String = when (item) {
+        is Song -> item.id.value
+        is Album -> item.id.value
+        is Artist -> item.id.value
+        is CatalogPlaylist -> item.id.value
+        else -> item.toString()
     }
 
     private suspend fun executeSearch(query: String, recordRecent: Boolean) {
         searchJob?.cancel()
         searchJob = scope.launch {
+            cancelLoadMoreJobs()
             _state.update {
                 it.copy(
                     submittedQuery = query,
@@ -147,8 +251,10 @@ class SearchViewModel(
     }
 
     private fun <T> mapGroup(group: GroupResult<T>): GroupState<T> = when (group) {
-        is GroupResult.Fresh -> GroupState.fresh(group.page.items)
-        is GroupResult.Stale -> GroupState.stale(group.page.items)
+        is GroupResult.Fresh ->
+            GroupState.fresh(group.page.items, group.page.normalizedNextPageToken)
+        is GroupResult.Stale ->
+            GroupState.stale(group.page.items, group.page.normalizedNextPageToken)
         is GroupResult.Failed -> GroupState.failed(categoryOf(group.error))
     }
 

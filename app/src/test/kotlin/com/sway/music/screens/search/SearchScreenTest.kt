@@ -2,12 +2,15 @@ package com.sway.music.screens.search
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
@@ -54,12 +57,12 @@ class SearchScreenTest {
         compose.setContent {
             SearchScreen(
                 state = resultsState(),
-                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {},
+                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {}, onLoadMore = {},
                 onClearQuery = {}, onRecentSelected = {}, onClearRecents = {},
                 onSongClick = {}, onAlbumClick = {}, onArtistClick = {}, onPlaylistClick = {},
             )
         }
-        listOf("Songs", "Albums", "Artists", "Playlists").forEach {
+        listOf("Songs", "Albums", "Artists").forEach {
             compose.onNodeWithTag("section_$it").assertExists()
         }
         compose.onNodeWithText("Neon Nights").assertExists()
@@ -70,6 +73,11 @@ class SearchScreenTest {
         val songsY = compose.onNodeWithTag("section_Songs").fetchSemanticsNode().positionInRoot.y
         val albumsY = compose.onNodeWithTag("section_Albums").fetchSemanticsNode().positionInRoot.y
         assertTrue(songsY < albumsY)
+
+        // Below-the-fold sections are lazily composed — scroll to reach them.
+        compose.onNodeWithTag("results")
+            .performScrollToNode(hasTestTag("section_Playlists"))
+        compose.onNodeWithTag("section_Playlists").assertExists()
     }
 
     @Test
@@ -78,7 +86,7 @@ class SearchScreenTest {
         compose.setContent {
             SearchScreen(
                 state = SearchUiState(query = "", submittedQuery = "chandelier sett", phase = SearchPhase.Empty),
-                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {},
+                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {}, onLoadMore = {},
                 onClearQuery = { cleared = true }, onRecentSelected = {}, onClearRecents = {},
                 onSongClick = {}, onAlbumClick = {}, onArtistClick = {}, onPlaylistClick = {},
             )
@@ -105,6 +113,7 @@ class SearchScreenTest {
             SearchScreen(
                 state = state,
                 onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = { retried = true },
+                onLoadMore = {},
                 onClearQuery = {}, onRecentSelected = {}, onClearRecents = {},
                 onSongClick = {}, onAlbumClick = {}, onArtistClick = {}, onPlaylistClick = {},
             )
@@ -128,7 +137,7 @@ class SearchScreenTest {
         compose.setContent {
             SearchScreen(
                 state = SearchUiState(query = "neon", submittedQuery = null, phase = SearchPhase.Loading),
-                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {},
+                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {}, onLoadMore = {},
                 onClearQuery = {}, onRecentSelected = {}, onClearRecents = {},
                 onSongClick = {}, onAlbumClick = {}, onArtistClick = {}, onPlaylistClick = {},
             )
@@ -141,7 +150,7 @@ class SearchScreenTest {
         compose.setContent {
             SearchScreen(
                 state = resultsState().copy(filter = SearchFilter.ALBUMS),
-                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {},
+                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {}, onLoadMore = {},
                 onClearQuery = {}, onRecentSelected = {}, onClearRecents = {},
                 onSongClick = {}, onAlbumClick = {}, onArtistClick = {}, onPlaylistClick = {},
             )
@@ -158,7 +167,7 @@ class SearchScreenTest {
         compose.setContent {
             SearchScreen(
                 state = SearchUiState(recentSearches = listOf("neon nights", "lofi")),
-                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {},
+                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {}, onLoadMore = {},
                 onClearQuery = {}, onRecentSelected = { selected = it }, onClearRecents = { cleared = true },
                 onSongClick = {}, onAlbumClick = {}, onArtistClick = {}, onPlaylistClick = {},
             )
@@ -177,12 +186,74 @@ class SearchScreenTest {
             SearchScreen(
                 state = SearchUiState(),
                 onQueryChanged = { changed = it }, onSubmit = {}, onChipSelected = {}, onRetry = {},
-                onClearQuery = {}, onRecentSelected = {}, onClearRecents = {},
+                onLoadMore = {}, onClearQuery = {}, onRecentSelected = {}, onClearRecents = {},
                 onSongClick = {}, onAlbumClick = {}, onArtistClick = {}, onPlaylistClick = {},
             )
         }
         compose.onNodeWithTag("search_field").performTextReplacement("neon")
         compose.runOnIdle { assertEquals("neon", changed) }
     }
+
+    // --- Story 10.3: pagination (FR-2) ----------------------------------------
+
+    @Test
+    fun loadMore_buttonAndSentinel_wireCallback_whenMorePagesExist() {
+        var loadMoreCalls = 0
+        compose.setContent {
+            SearchScreen(
+                state = resultsState(songs = GroupState.fresh(listOf(song("s1")), nextPageToken = "t1")),
+                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {},
+                onLoadMore = { loadMoreCalls++ }, onClearQuery = {}, onRecentSelected = {},
+                onClearRecents = {}, onSongClick = {}, onAlbumClick = {}, onArtistClick = {},
+                onPlaylistClick = {},
+            )
+        }
+        compose.onNodeWithTag("loadmore_songs").assertExists()
+        // Sentinel fires once on composition; button click adds another trigger
+        // (the VM's in-flight guard collapses duplicates — proven at VM level).
+        compose.waitUntil(5_000) { loadMoreCalls >= 1 }
+        compose.onNodeWithTag("loadmore_songs").performClick()
+        compose.runOnIdle { assertTrue(loadMoreCalls >= 2) }
+    }
+
+    @Test
+    fun endDivider_exhausted_rendersExactlyOnce_noLoadMore() {
+        compose.setContent {
+            SearchScreen(
+                state = resultsState(),
+                onQueryChanged = {}, onSubmit = {}, onChipSelected = {}, onRetry = {},
+                onLoadMore = {}, onClearQuery = {}, onRecentSelected = {}, onClearRecents = {},
+                onSongClick = {}, onAlbumClick = {}, onArtistClick = {}, onPlaylistClick = {},
+            )
+        }
+        // Only the composed (top) section's divider is in the tree; the law
+        // "exactly once per exhausted group" is what matters here.
+        compose.onAllNodesWithText("That's everything").assertCountEquals(1)
+        compose.onNodeWithTag("end_songs").assertExists()
+        assertEquals(0, compose.onAllNodesWithTag("loadmore_songs").fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun appendFailure_retryLineBelowItems_itemsNeverBlanked() {
+        var retried = false
+        compose.setContent {
+            SearchScreen(
+                state = resultsState(
+                    songs = GroupState.fresh(listOf(song("s1")))
+                        .copy(appendError = SwayErrorUiState.RateLimited),
+                ),
+                onQueryChanged = {}, onSubmit = {}, onChipSelected = {},
+                onRetry = {}, onLoadMore = { retried = true }, onClearQuery = {},
+                onRecentSelected = {}, onClearRecents = {}, onSongClick = {},
+                onAlbumClick = {}, onArtistClick = {}, onPlaylistClick = {},
+            )
+        }
+        compose.onNodeWithText("Neon Nights").assertExists()
+        compose.onNodeWithText("Couldn't load more.").assertExists()
+        compose.onAllNodesWithText("Retry")[0].performClick()
+        compose.runOnIdle { assertTrue(retried) }
+    }
 }
+
+
 

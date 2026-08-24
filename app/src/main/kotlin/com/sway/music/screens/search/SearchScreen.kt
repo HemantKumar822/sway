@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,6 +44,7 @@ fun SearchScreen(
     onSubmit: () -> Unit,
     onChipSelected: (SearchFilter) -> Unit,
     onRetry: () -> Unit,
+    onLoadMore: (SearchGroup) -> Unit,
     onClearQuery: () -> Unit,
     onRecentSelected: (String) -> Unit,
     onClearRecents: () -> Unit,
@@ -94,6 +96,7 @@ fun SearchScreen(
                 query = state.submittedQuery.orEmpty(),
                 filter = state.filter,
                 onRetry = onRetry,
+                onLoadMore = onLoadMore,
                 onSongClick = onSongClick,
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
@@ -176,6 +179,7 @@ private fun ResultsList(
     query: String,
     filter: SearchFilter,
     onRetry: () -> Unit,
+    onLoadMore: (SearchGroup) -> Unit,
     onSongClick: (Song) -> Unit,
     onAlbumClick: (Album) -> Unit,
     onArtistClick: (Artist) -> Unit,
@@ -184,16 +188,16 @@ private fun ResultsList(
     // Songs first per UX-P7; each group renders its own honest state.
     LazyColumn(Modifier.fillMaxSize().testTag("results")) {
         if (filter == SearchFilter.ALL || filter == SearchFilter.SONGS) {
-            songSection(phase.songs, onRetry, onSongClick)
+            songSection(phase.songs, onRetry, onSongClick) { onLoadMore(SearchGroup.SONGS) }
         }
         if (filter == SearchFilter.ALL || filter == SearchFilter.ALBUMS) {
-            albumSection(phase.albums, onRetry, onAlbumClick)
+            albumSection(phase.albums, onRetry, onAlbumClick) { onLoadMore(SearchGroup.ALBUMS) }
         }
         if (filter == SearchFilter.ALL || filter == SearchFilter.ARTISTS) {
-            artistSection(phase.artists, onRetry, onArtistClick)
+            artistSection(phase.artists, onRetry, onArtistClick) { onLoadMore(SearchGroup.ARTISTS) }
         }
         if (filter == SearchFilter.ALL || filter == SearchFilter.PLAYLISTS) {
-            playlistSection(phase.playlists, onRetry, onPlaylistClick)
+            playlistSection(phase.playlists, onRetry, onPlaylistClick) { onLoadMore(SearchGroup.PLAYLISTS) }
         }
     }
 }
@@ -202,6 +206,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.songSection(
     group: GroupState<Song>,
     onRetry: () -> Unit,
     onClick: (Song) -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     sectionHeader("Songs", group.stale)
     when {
@@ -212,12 +217,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.songSection(
             SongRow(song = song, onClick = { onClick(song) })
         }
     }
+    sectionFooter("songs", group, onLoadMore)
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.albumSection(
     group: GroupState<Album>,
     onRetry: () -> Unit,
     onClick: (Album) -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     sectionHeader("Albums", group.stale)
     when {
@@ -233,12 +240,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.albumSection(
             )
         }
     }
+    sectionFooter("albums", group, onLoadMore)
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.artistSection(
     group: GroupState<Artist>,
     onRetry: () -> Unit,
     onClick: (Artist) -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     sectionHeader("Artists", group.stale)
     when {
@@ -256,12 +265,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.artistSection(
             )
         }
     }
+    sectionFooter("artists", group, onLoadMore)
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.playlistSection(
     group: GroupState<CatalogPlaylist>,
     onRetry: () -> Unit,
     onClick: (CatalogPlaylist) -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     sectionHeader("Playlists", group.stale)
     when {
@@ -277,6 +288,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.playlistSection(
             )
         }
     }
+    sectionFooter("playlists", group, onLoadMore)
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.sectionHeader(label: String, stale: Boolean) {
@@ -306,6 +318,76 @@ private fun androidx.compose.foundation.lazy.LazyListScope.emptyGroupLine(key: S
     }
 }
 
+private fun <T> androidx.compose.foundation.lazy.LazyListScope.sectionFooter(
+    key: String,
+    group: GroupState<T>,
+    onLoadMore: () -> Unit,
+) {
+    if (group.appendError != null) {
+        item(key = "appenderr_$key") {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "Couldn't load more.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = onLoadMore, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Retry")
+                }
+            }
+        }
+    }
+    if (group.canLoadMore || group.loadingMore) {
+        // Infinite-scroll sentinel: fires once on composition; the ViewModel's
+        // in-flight guard makes double-triggers harmless (FR-2).
+        item(key = "sentinel_$key") {
+            androidx.compose.runtime.LaunchedEffect(group.nextPageToken) {
+                if (!group.loadingMore) onLoadMore()
+            }
+        }
+        item(key = "loadmore_$key") {
+            androidx.compose.foundation.layout.Box(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                TextButton(
+                    onClick = onLoadMore,
+                    enabled = !group.loadingMore,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("loadmore_$key"),
+                ) {
+                    Text(if (group.loadingMore) "Loading…" else "Load more")
+                }
+            }
+        }
+    } else if (
+        group.items.isNotEmpty() &&
+        !group.loading &&
+        group.error == null &&
+        group.appendError == null
+    ) {
+        // End-of-results divider (FR-2): exactly once, exhausted groups only.
+        item(key = "end_$key") {
+            Text(
+                "That's everything",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp)
+                    .testTag("end_$key"),
+            )
+        }
+    }
+}
+
 private fun androidx.compose.foundation.lazy.LazyListScope.failedItems(
     key: String,
     category: com.sway.core.model.SwayErrorUiState,
@@ -319,6 +401,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.failedItems(
         )
     }
 }
+
 
 
 

@@ -86,6 +86,19 @@ class CatalogRepository(
         )
     }
 
+    /** Per-group continuation fetch (story 10.3, FR-2): same laws as [search]. */
+    suspend fun songsPage(query: String, pageToken: String): GroupResult<Song> =
+        searchGroup("songs", query, ":$pageToken", codec = songPageCodec) { q, t -> source.searchSongs(q, t) }
+
+    suspend fun albumsPage(query: String, pageToken: String): GroupResult<Album> =
+        searchGroup("albums", query, ":$pageToken") { q, t -> source.searchAlbums(q, t) }
+
+    suspend fun artistsPage(query: String, pageToken: String): GroupResult<Artist> =
+        searchGroup("artists", query, ":$pageToken") { q, t -> source.searchArtists(q, t) }
+
+    suspend fun playlistsPage(query: String, pageToken: String): GroupResult<CatalogPlaylist> =
+        searchGroup("playlists", query, ":$pageToken") { q, t -> source.searchCatalogPlaylists(q, t) }
+
     // --- details ---------------------------------------------------------------
 
     suspend fun album(id: com.sway.core.model.SourceId): SwayResult<Album> =
