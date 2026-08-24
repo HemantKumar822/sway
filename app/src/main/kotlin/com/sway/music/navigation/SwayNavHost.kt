@@ -2,8 +2,11 @@ package com.sway.music.navigation
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -11,12 +14,16 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -25,6 +32,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.sway.designui.components.OfflineBanner
+import com.sway.designui.theme.Adaptive
 
 /**
  * Navigation shell (story 9.3, FR-26): three bottom tabs (Home/Search/
@@ -64,6 +72,58 @@ fun SwayNavHost(
 ) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+
+    val isExpanded = LocalConfiguration.current.screenWidthDp >= Adaptive.EXPANDED_BREAKPOINT
+    // 14.5: >=840dp rail replaces bottom bar, state (tab selection, mini visibility) carries
+    // across configuration changes via the same NavController + rememberSwayNavController.
+    if (isExpanded) {
+        Row(modifier = modifier.fillMaxSize()) {
+            NavigationRail(
+                modifier = Modifier.fillMaxHeight(),
+                header = { Box(Modifier.padding(vertical = 12.dp)) { Text("Sway") } },
+            ) {
+                TOP_TABS.forEach { tab ->
+                    val selected = currentRoute == tab.route
+                    NavigationRailItem(
+                        selected = selected,
+                        onClick = { navController.navigateToTab(tab.route) },
+                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        label = { Text(tab.label) },
+                    )
+                }
+            }
+            Column(Modifier.weight(1f).fillMaxSize()) {
+                OfflineBanner(visible = offlineBannerVisible, onDismiss = { })
+                // Mini layer sits above content when expanded as well.
+                miniPlayer?.invoke()
+                Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                    Box(Modifier.widthIn(max = Adaptive.CONTENT_MAX_WIDTH).fillMaxSize()) {
+                        NavHost(
+                            navController = navController,
+                            startDestination = startTab,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            composable(Routes.HOME) { screen(Routes.HOME) }
+                            composable(Routes.SEARCH) { screen(Routes.SEARCH) }
+                            composable(Routes.LIBRARY) { screen(Routes.LIBRARY) }
+                            composable(Routes.ALBUM) { entry -> detailScreen(Routes.ALBUM, entry.arguments?.getString("albumId").orEmpty()) }
+                            composable(Routes.ARTIST) { entry -> detailScreen(Routes.ARTIST, entry.arguments?.getString("artistId").orEmpty()) }
+                            composable(Routes.CATALOG_PLAYLIST) { entry -> detailScreen(Routes.CATALOG_PLAYLIST, entry.arguments?.getString("playlistId").orEmpty()) }
+                            composable(Routes.PLAYLIST) { entry -> detailScreen(Routes.PLAYLIST, entry.arguments?.getString("playlistId").orEmpty()) }
+                            composable(Routes.LIKED) { screen(Routes.LIKED) }
+                            composable(Routes.HISTORY) { screen(Routes.HISTORY) }
+                            composable(Routes.SETTINGS) { PlaceholderScreen("Settings") }
+                            composable(Routes.ABOUT) { PlaceholderScreen("About") }
+                        }
+                    }
+                }
+                if (snackbarHostState != null) {
+                    androidx.compose.material3.SnackbarHost(hostState = snackbarHostState, modifier = Modifier.padding(8.dp))
+                }
+            }
+        }
+        return
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),

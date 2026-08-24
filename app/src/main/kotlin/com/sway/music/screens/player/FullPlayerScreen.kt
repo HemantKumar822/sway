@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sway.core.model.RepeatMode
 import com.sway.designui.images.SwayAsyncImage
+import com.sway.designui.theme.Adaptive
 import com.sway.designui.theme.Atmosphere
 import com.sway.designui.theme.MotionScheme
 import com.sway.playback.PlayerUiState
