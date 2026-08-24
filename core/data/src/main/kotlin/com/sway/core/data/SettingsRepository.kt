@@ -4,6 +4,9 @@ import com.sway.core.model.Quality
 import com.sway.core.model.RepeatMode
 import kotlinx.coroutines.flow.Flow
 
+/** Appearance preference (story 15.1, FR-39): System follows OS, Light/Dark pin. */
+enum class Appearance { SYSTEM, LIGHT, DARK }
+
 /**
  * Persistence for user settings (FR-15 completes here; FR-39/FR-11 persistence build on
  * this repository later) — one namespaced DataStore preferences file (architecture
@@ -19,7 +22,7 @@ import kotlinx.coroutines.flow.Flow
  * rapid changes persist last-write-wins.
  *
  * Failure law: corrupt/unreadable stored values degrade to the documented default
- * (AUTO / false / OFF) instead of throwing at collectors — mirrors the
+ * (AUTO / false / OFF / SYSTEM) instead of throwing at collectors — mirrors the
  * strict-validation-on-read, never-crash lesson of the Offline Fallback Cache (C-8).
  */
 interface SettingsRepository {
@@ -44,4 +47,10 @@ interface SettingsRepository {
 
     /** Persists [mode] by its strict enum name (last write wins). */
     suspend fun setRepeatMode(mode: RepeatMode)
+
+    /** Persisted appearance; emits SYSTEM when unset or unreadable (FR-39). */
+    val appearance: Flow<Appearance>
+
+    /** Persists [appearance] by its strict enum name (last write wins). */
+    suspend fun setAppearance(appearance: Appearance)
 }

@@ -336,12 +336,17 @@ class ModesPersistenceTest {
     ) : SettingsRepository {
         val persistedRepeat = MutableStateFlow(repeatInitial)
         val persistedShuffleFlag = MutableStateFlow(shuffleInitial)
+        val persistedAppearance = MutableStateFlow(com.sway.core.data.Appearance.SYSTEM)
 
         override val repeatMode: Flow<RepeatMode> = persistedRepeat
         override val shuffleEnabled: Flow<Boolean> = persistedShuffleFlag
+        override val appearance: Flow<com.sway.core.data.Appearance> = persistedAppearance
 
         override val audioQuality: Flow<Quality> = MutableStateFlow(Quality.AUTO)
         override suspend fun setAudioQuality(quality: Quality) = Unit
+        override suspend fun setAppearance(appearance: com.sway.core.data.Appearance) {
+            persistedAppearance.value = appearance
+        }
 
         override suspend fun setShuffleEnabled(enabled: Boolean) {
             persistedShuffleFlag.value = enabled

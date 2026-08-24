@@ -105,7 +105,14 @@ class MainActivity : ComponentActivity() {
         val connectivity = ConnectivityObserver(this)
 
         setContent {
-            val dark = isSystemInDarkTheme()
+            // 15.1: appearance persisted via SettingsRepository — System/Light/Dark with immediate apply.
+            val appearance by graph.settings.appearance.collectAsStateWithLifecycle(initialValue = com.sway.core.data.Appearance.SYSTEM)
+            val systemDark = isSystemInDarkTheme()
+            val dark = when (appearance) {
+                com.sway.core.data.Appearance.SYSTEM -> systemDark
+                com.sway.core.data.Appearance.LIGHT -> false
+                com.sway.core.data.Appearance.DARK -> true
+            }
             // 13.1: Image pipeline — init once in composition scope (AD-10: no disk/network in onCreate).
             // Caches are lazy inside Coil; this post-first-frame construction keeps startup free.
             val appCtx = LocalContext.current.applicationContext
@@ -403,7 +410,17 @@ class MainActivity : ComponentActivity() {
                                         snackbarHostState.showSnackbar("Created \"$name\"")
                                     } },
                                     onSongLongClick = { menuSongState = it },
+                                    onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                                    onOpenAbout = { navController.navigate(Routes.ABOUT) },
                                 )
+                                Routes.SETTINGS -> com.sway.music.screens.settings.SettingsScreen(
+                                    appearance = appearance,
+                                    onAppearanceSelected = { sel -> searchScope.launch { graph.settings.setAppearance(sel) } },
+                                    onOpenAbout = { navController.navigate(Routes.ABOUT) },
+                                    quality = if (com.sway.music.FeatureFlags.OQ6_QUALITY_VISIBLE) audioQuality else null,
+                                    onQualityClick = if (com.sway.music.FeatureFlags.OQ6_QUALITY_VISIBLE) ({ qualityOpen = true }) else null,
+                                )
+                                Routes.ABOUT -> com.sway.music.screens.about.AboutScreen()
                                 else -> Unit // NavHost destinations own these routes
                             }
                         },
@@ -504,9 +521,9 @@ class MainActivity : ComponentActivity() {
                             playback.currentItem?.let { toggleLike(it.song) }
                         },
                         onOpenQueue = { queueOpen = true },
-                        qualityChip = {
-                            QualityChip(current = audioQuality, onOpen = { qualityOpen = true })
-                        },
+                        qualityChip = if (com.sway.music.FeatureFlags.OQ6_QUALITY_VISIBLE) {
+                            { QualityChip(current = audioQuality, onOpen = { qualityOpen = true }) }
+                        } else null,
                         atmosphere = atmosphere,
                         online = online,
                     )

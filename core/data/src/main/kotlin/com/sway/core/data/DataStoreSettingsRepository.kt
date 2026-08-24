@@ -66,6 +66,18 @@ class DataStoreSettingsRepository(
         }
     }
 
+    override val appearance: Flow<Appearance> = dataStore.data
+        .catch { throwable ->
+            if (throwable is IOException) emit(emptyPreferences()) else throw throwable
+        }
+        .map { preferences -> parseAppearance(preferences[KEY_APPEARANCE]) ?: DEFAULT_APPEARANCE }
+
+    override suspend fun setAppearance(appearance: Appearance) {
+        dataStore.edit { preferences ->
+            preferences[KEY_APPEARANCE] = appearance.name
+        }
+    }
+
     companion object {
         /** Namespaced settings keys live in the one shared file (`sway_settings`). */
         const val FILE_NAME = "sway_settings"
@@ -75,10 +87,12 @@ class DataStoreSettingsRepository(
         /** Story 7.2 (FR-11): shuffle flag + strict-named repeat mode. */
         val KEY_SHUFFLE: Preferences.Key<Boolean> = booleanPreferencesKey("playback.shuffle")
         val KEY_REPEAT: Preferences.Key<String> = stringPreferencesKey("playback.repeat")
+        val KEY_APPEARANCE: Preferences.Key<String> = stringPreferencesKey("appearance")
 
         val DEFAULT_QUALITY: Quality = Quality.AUTO
         const val DEFAULT_SHUFFLE: Boolean = false
         val DEFAULT_REPEAT: RepeatMode = RepeatMode.OFF
+        val DEFAULT_APPEARANCE: Appearance = Appearance.SYSTEM
 
         /**
          * Strict enum-name parse; anything but an exact name is corrupt by definition.
@@ -95,6 +109,13 @@ class DataStoreSettingsRepository(
         private fun parseRepeat(name: String?): RepeatMode? =
             try {
                 name?.let { candidate -> RepeatMode.entries.firstOrNull { it.name == candidate } }
+            } catch (_: Exception) {
+                null
+            }
+
+        private fun parseAppearance(name: String?): Appearance? =
+            try {
+                name?.let { candidate -> Appearance.entries.firstOrNull { it.name == candidate } }
             } catch (_: Exception) {
                 null
             }

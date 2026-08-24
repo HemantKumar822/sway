@@ -9,8 +9,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -49,8 +56,11 @@ fun LibraryHubScreen(
     onCreatePlaylist: (name: String) -> Unit,
     onSongLongClick: (Song) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenSettings: (() -> Unit)? = null,
+    onOpenAbout: (() -> Unit)? = null,
 ) {
     var showCreate by remember { mutableStateOf(false) }
+    var showOverflow by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -102,7 +112,26 @@ fun LibraryHubScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Playlists", style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = { showCreate = true }) { Text("+ New") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { showCreate = true }) { Text("+ New") }
+                    Box {
+                        IconButton(onClick = { showOverflow = true }, modifier = Modifier.testTag("library_overflow")) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(expanded = showOverflow, onDismissRequest = { showOverflow = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Settings") },
+                                onClick = { showOverflow = false; onOpenSettings?.invoke() },
+                                modifier = Modifier.testTag("overflow_settings"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("About") },
+                                onClick = { showOverflow = false; onOpenAbout?.invoke() },
+                                modifier = Modifier.testTag("overflow_about"),
+                            )
+                        }
+                    }
+                }
             }
         }
         if (playlists.isEmpty()) {
