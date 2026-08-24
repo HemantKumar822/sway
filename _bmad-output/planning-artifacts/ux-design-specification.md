@@ -297,10 +297,15 @@ Frontmatter above is machine-readable truth; this section is rationale + rules. 
 
 ### 7.1 Color
 
-- **Inheritance:** roles map 1:1 to Compose `ColorScheme` (dynamic-ready). **Dynamic (wallpaper) color is OFF in v1** `[PROVISIONAL]` — brand consistency wins; Settings offers only System/Light/Dark per FR-39. Structural dynamic-readiness kept so a future toggle is a settings flip, not a refactor.
-- **Scheme:** violet-led brand (music-calm, distinctive vs. red/green incumbents); **rose tertiary reserved for liking**; **amber `caution` reserved for offline/stale** (never decorative); standard M3 error ramp.
-- **Neutral surfaces carry a faint violet cast** (light: `#FCF9FE`; dark: `#131318`) — perceptually cooler-calm, distinctively Sway, and artwork-neutral enough to let extracted color own the player.
-- Dark scheme is first-class (both audited per NFR-5 contrast matrix).
+> **OWNER DECISION 2026-08-24 (supersedes the violet-led proposal; roles/relationships preserved per the tuning clause above):** the brand system is now **two-mode**: **"Ink & Paper"** (monochrome, Notion-philosophy default) and **artwork-dynamic color** (whole-app recolor from the playing track's cover, SuvMusic/YT-Music-style). The violet brand hue is retired.
+
+- **Mode MONO — "Ink & Paper" (default):** Notion-design philosophy — paper neutrals do all the quiet work and color is purely semantic.
+  - Light: background `#FFFFFF`; containers `#F7F7F5` / `#EFEFED` / `#E8E8E6`; ink text `#191918`; secondary text `#6B6A66`; hairline outlines `#DEDEDC` / `#EDEDEB`; primary = ink `#191918` on white (Notion's black-button language).
+  - Dark ("Midnight Ink"): background `#101010`; containers `#171717` / `#1E1E1E` / `#262626`; ink `#EDECEA`; secondary `#A8A7A3`; hairlines `#2A2A28`; primary = ink `#EDECEA` on near-black.
+  - AMOLED pure-black variant: background/containers collapse to `#000000`/`#0C0C0C`.
+  - Semantic accents survive unchanged in BOTH modes: **rose tertiary reserved for liking**, **amber caution reserved for offline/stale**, standard M3 error ramp. Color never decorates — it only means.
+- **Mode DYNAMIC — artwork-driven (opt-in, default ON once artwork pipeline lands):** when a track plays, its cover's dominant palette recolors the ENTIRE app (surfaces, containers, accents) with spring-animated transitions; seed selection prefers vibrant/dominant swatches. Falls back to Ink & Paper whenever no artwork exists, extraction fails, or contrast floors would break (NFR-5 wins over aesthetics). Wallpaper-level Material You dynamic stays OFF (artwork IS the wallpaper).
+- Dark scheme is first-class in both modes (audited per NFR-5 contrast matrix).
 
 ### 7.2 Typography
 

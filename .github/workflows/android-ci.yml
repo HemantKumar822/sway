@@ -38,5 +38,8 @@ jobs:
       - name: History write-path audit (AR-5 rule 7)
         run: bash scripts/check_history_write_path.sh
 
+      - name: Theme import audit (story 9.1)
+        run: bash scripts/check_theme_imports.sh
+
       - name: Assemble debug
         run: ./gradlew assembleDebug --stacktrace

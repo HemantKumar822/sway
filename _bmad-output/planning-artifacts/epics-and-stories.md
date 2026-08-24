@@ -1008,21 +1008,28 @@ profile with StrictMode clean.
 ### Story 9.1 - SwayTheme tokens on M3 Expressive *(5 pts, deps: 1.1)*
 
 As a listener, I want Sway to look like nothing else on my phone, so that the brand feels
-owned: violet-led calm, warm type, expressive-but-disciplined motion.
+owned: "Ink & Paper" monochrome calm by default, and the whole app recolored by whatever
+is playing — warm type, expressive-but-disciplined motion. [OWNER AMENDMENT 2026-08-24:
+violet brand retired; two-mode system per UX §7.1 — SuvMusic-inspired artwork-dynamic
+engine with spring-animated scheme transitions.]
 
 **Traces:** UX-DR1..4; UX-P1/P2; NFR-6 substrate (MotionScheme); AD-13. **Tasks:** in
-`:designui`: ColorScheme light+dark from UX frontmatter values (violet primary, rose
-tertiary=like, amber caution=offline/stale, faint-violet neutrals); Outfit+Inter bundled;
-type ramp with tabular-figure style for numerics; shape ramp; MotionScheme mapping
-duration/easing/spring tokens incl. reduced-motion override; dynamic color OFF
-(structurally ready); Theme composable + preview harness.
+`:designui`: Ink & Paper mono ColorSchemes (light + dark + AMOLED pure-black variant;
+Notion-philosophy neutrals, ink primaries, semantic rose=like / amber=caution preserved)
+as the DEFAULT mode; artwork-DYNAMIC mode: PaletteExtractor (Bitmap -> dominant/vibrant
+seed swatches) + DynamicSchemeFactory (seed -> full light/dark ColorScheme) with
+spring-animated scheme transitions; ThemeMode(MONO/DYNAMIC) parameter on the Theme
+composable (persistence lands 15.1); Outfit+Inter bundled; type ramp with tabular-figure
+style for numerics; shape ramp; MotionScheme mapping duration/easing/spring tokens incl.
+reduced-motion override (opacity fade <=120 ms); Theme composable + preview harness.
 
 **Acceptance Criteria:**
 - **Given** system dark/light toggles, **When** app renders, **Then** correct scheme applies with all roles from the token set (screenshot pairs).
 - **Given** reduced-motion enabled, **When** any token animation runs, **Then** it degrades to opacity fade <=120 ms (motion-harness assertions).
+- **Given** a seed bitmap in DYNAMIC mode, **When** the scheme is derived, **Then** all roles derive deterministically from the dominant swatch with contrast floors honored (onPrimary vs primary auditable), and MONO applies whenever no seed exists.
 - **And** no component outside `:designui` references raw colors/fonts (import lint).
 
-**Tests:** Compose screenshot tests light x dark; motion-token unit tests.
+**Tests:** Compose screenshot tests light x dark; motion-token unit tests; palette-extractor + dynamic-factory unit tests over synthetic bitmaps.
 
 ### Story 9.2 - Typed-state kit & core components *(8 pts, deps: 9.1)*
 

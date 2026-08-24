@@ -49,6 +49,7 @@ androidx-media3-datasource = { group = "androidx.media3", name = "media3-datasou
 
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-palette = { group = "androidx.palette", name = "palette-ktx", version = "1.0.0" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 
