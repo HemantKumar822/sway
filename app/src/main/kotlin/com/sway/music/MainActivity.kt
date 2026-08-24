@@ -45,6 +45,13 @@ import com.sway.music.screens.detail.ArtistDetailScreen
 import com.sway.music.screens.detail.ArtistDetailViewModel
 import com.sway.music.screens.detail.CatalogPlaylistDetailScreen
 import com.sway.music.screens.detail.CatalogPlaylistDetailViewModel
+import com.sway.music.screens.library.HistoryScreen
+import com.sway.music.screens.library.LikedSongsScreen
+import com.sway.music.screens.library.LibraryHubScreen
+import com.sway.music.screens.library.PlaylistEditorScreen
+import com.sway.music.screens.library.PlaylistEditorUiState
+import com.sway.music.screens.library.PlaylistEditorViewModel
+import com.sway.music.screens.library.RepositoryPlaylistEditorOps
 import com.sway.music.screens.HomeScreen
 import com.sway.music.screens.menu.SongContextMenu
 import com.sway.music.screens.menu.SongMenuAction
@@ -116,6 +123,10 @@ class MainActivity : ComponentActivity() {
                         .collectAsStateWithLifecycle(initialValue = emptyList())
                     val playlistSummaries by graph.playlists.observePlaylists()
                         .collectAsStateWithLifecycle(initialValue = emptyList())
+                    // Story 11.4: live history count for Home + hub tiles.
+                    val historyEntries by graph.history.observeRecent()
+                        .collectAsStateWithLifecycle(initialValue = emptyList())
+                    val nowMillis = remember { System.currentTimeMillis() }
                     val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
                     val appContext = applicationContext
 
@@ -184,11 +195,11 @@ class MainActivity : ComponentActivity() {
                                 Routes.HOME -> HomeScreen(
                                     likedCount = likedSongs.size,
                                     playlistCount = playlistSummaries.size,
-                                    historyCount = 0,
+                                    historyCount = historyEntries.size,
                                     onSearchClick = { navController.navigateToTab(Routes.SEARCH) },
-                                    onLikedClick = {},
-                                    onPlaylistsClick = {},
-                                    onHistoryClick = {},
+                                    onLikedClick = { navController.navigateToTab(Routes.LIBRARY) },
+                                    onPlaylistsClick = { navController.navigateToTab(Routes.LIBRARY) },
+                                    onHistoryClick = { navController.navigateToTab(Routes.LIBRARY) },
                                 )
                                 Routes.SEARCH -> SearchScreen(
                                     state = searchState,
@@ -211,6 +222,35 @@ class MainActivity : ComponentActivity() {
                                     onPlaylistClick = { pl ->
                                         navController.navigate(Routes.catalogPlaylist(pl.id.value))
                                     },
+                                )
+                                // Stories 11.1/11.2: owned-data surfaces (instant, offline).
+                                Routes.LIKED -> LikedSongsScreen(
+                                    songs = likedSongs,
+                                    onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                    onSongLongClick = { menuSongState = it },
+                                )
+                                Routes.HISTORY -> HistoryScreen(
+                                    entries = historyEntries,
+                                    nowMillis = nowMillis,
+                                    onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                    onSongLongClick = { menuSongState = it },
+                                )
+                                // Story 11.4: Library hub aggregation.
+                                Routes.LIBRARY -> LibraryHubScreen(
+                                    likedSongs = likedSongs,
+                                    playlists = playlistSummaries,
+                                    historyCount = historyEntries.size,
+                                    onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                    onOpenPlaylist = { pid, _ ->
+                                        navController.navigate(Routes.playlist(pid))
+                                    },
+                                    onOpenLiked = { navController.navigate(Routes.LIKED) },
+                                    onOpenHistory = { navController.navigate(Routes.HISTORY) },
+                                    onCreatePlaylist = { name -> searchScope.launch {
+                                        graph.playlists.create(name)
+                                        snackbarHostState.showSnackbar("Created \"$name\"")
+                                    } },
+                                    onSongLongClick = { menuSongState = it },
                                 )
                                 else -> Unit // NavHost destinations own these routes
                             }
@@ -250,6 +290,42 @@ class MainActivity : ComponentActivity() {
                                         state = vm.state.collectAsStateWithLifecycle().value,
                                         onRetry = vm::retry,
                                         onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                        onSongLongClick = { menuSongState = it },
+                                    )
+                                }
+                                // Story 11.3: owned-playlist detail & editor.
+                                Routes.PLAYLIST -> {
+                                    val editorVm = remember(id) {
+                                        PlaylistEditorViewModel(
+                                            playlistId = id,
+                                            ops = RepositoryPlaylistEditorOps(graph.playlists),
+                                            scope = searchScope,
+                                        )
+                                    }
+                                    val songs by editorVm.songs.collectAsStateWithLifecycle()
+                                    val editMode by editorVm.editMode.collectAsStateWithLifecycle()
+                                    val summary = playlistSummaries
+                                        .firstOrNull { it.playlist.id.value == id }
+                                    PlaylistEditorScreen(
+                                        name = summary?.playlist?.name ?: "Playlist",
+                                        state = PlaylistEditorUiState(songs = songs, editMode = editMode),
+                                        likedSongs = likedSongs,
+                                        playlists = playlistSummaries,
+                                        onPlaybackRequest = { /* queue wiring completes E12 */ },
+                                        onToggleEditMode = { editorVm.toggleEditMode() },
+                                        onRemoveAt = { index -> editorVm.removeAt(index) },
+                                        onMove = { from, to -> editorVm.move(from, to) },
+                                        onRename = { newName ->
+                                            searchScope.launch { editorVm.rename(newName) }
+                                        },
+                                        onDelete = {
+                                            searchScope.launch {
+                                                editorVm.delete { navController.popBackStack() }
+                                            }
+                                        },
+                                        onAddBatch = { songsToAdd ->
+                                            searchScope.launch { editorVm.addBatch(songsToAdd) }
+                                        },
                                         onSongLongClick = { menuSongState = it },
                                     )
                                 }

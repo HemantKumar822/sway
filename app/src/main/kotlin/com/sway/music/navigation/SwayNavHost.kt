@@ -109,9 +109,14 @@ fun SwayNavHost(
             composable(Routes.CATALOG_PLAYLIST) { entry ->
                 detailScreen(Routes.CATALOG_PLAYLIST, entry.arguments?.getString("playlistId").orEmpty())
             }
-            composable(Routes.PLAYLIST) { PlaceholderScreen("Playlist") }
-            composable(Routes.LIKED) { PlaceholderScreen("Liked Songs") }
-            composable(Routes.HISTORY) { PlaceholderScreen("Play History") }
+            composable(Routes.PLAYLIST) { entry ->
+                detailScreen(
+                    Routes.PLAYLIST,
+                    entry.arguments?.getString("playlistId").orEmpty(),
+                )
+            }
+            composable(Routes.LIKED) { screen(Routes.LIKED) }
+            composable(Routes.HISTORY) { screen(Routes.HISTORY) }
             composable(Routes.SETTINGS) { PlaceholderScreen("Settings") }
             composable(Routes.ABOUT) { PlaceholderScreen("About") }
         }

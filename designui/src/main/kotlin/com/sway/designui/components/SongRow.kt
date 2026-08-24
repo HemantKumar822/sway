@@ -35,6 +35,7 @@ fun SongRow(
     indexLabel: String? = null,
     playing: Boolean = false,
     failedReason: String? = null,
+    trailingLabel: String? = null,
     onLongClick: () -> Unit = {},
 ) {
     val titleColor = when {
@@ -85,6 +86,14 @@ fun SongRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (trailingLabel != null) {
+            Text(
+                trailingLabel,
+                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp),
             )
         }
         if (failedReason != null) {

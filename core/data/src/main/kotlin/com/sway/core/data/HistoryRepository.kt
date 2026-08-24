@@ -19,8 +19,8 @@ class HistoryRepository(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
-    /** The cap from AD-8: history holds at most the 500 most recent plays. */
-    internal companion object {
+    /** The cap from AD-8: history holds at most the most recent [CAP] plays. */
+    companion object {
         const val CAP = 500
     }
 
