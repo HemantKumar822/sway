@@ -15,6 +15,8 @@ internal inline fun <T> storageGuarded(block: () -> T): SwayResult<T> = try {
     SwayResult.Failure(SwayError.Storage)
 } catch (e: android.database.SQLException) {
     SwayResult.Failure(SwayError.Storage)
+} catch (e: java.sql.SQLException) {
+    SwayResult.Failure(SwayError.Storage)
 } catch (e: IllegalStateException) {
     SwayResult.Failure(SwayError.Storage)
 }

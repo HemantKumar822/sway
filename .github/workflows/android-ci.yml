@@ -35,5 +35,8 @@ jobs:
       - name: Serializer ownership audit (AD-8)
         run: bash scripts/check_serializer_ownership.sh
 
+      - name: History write-path audit (AR-5 rule 7)
+        run: bash scripts/check_history_write_path.sh
+
       - name: Assemble debug
         run: ./gradlew assembleDebug --stacktrace

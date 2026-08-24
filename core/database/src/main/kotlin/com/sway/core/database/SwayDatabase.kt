@@ -16,8 +16,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * (migration 3, story 8.2); history lands with story 8.3.
  */
 @Database(
-    entities = [QueueStateEntity::class, SongEntity::class, PlaylistEntity::class, PlaylistSongEntity::class],
-    version = 3,
+    entities = [
+        QueueStateEntity::class,
+        SongEntity::class,
+        PlaylistEntity::class,
+        PlaylistSongEntity::class,
+        HistoryEntity::class,
+    ],
+    version = 4,
     exportSchema = true,
 )
 abstract class SwayDatabase : RoomDatabase() {
@@ -27,6 +33,8 @@ abstract class SwayDatabase : RoomDatabase() {
     abstract fun libraryDao(): LibraryDao
 
     abstract fun playlistDao(): PlaylistDao
+
+    abstract fun historyDao(): HistoryDao
 
     companion object {
         const val NAME = "sway.db"
@@ -95,7 +103,27 @@ abstract class SwayDatabase : RoomDatabase() {
             }
         }
 
-        val ALL_MIGRATIONS = arrayOf<Migration>(MIGRATION_1_2, MIGRATION_2_3)
+        /**
+         * Migration 3 -> 4 (story 8.3): play-history table (recency upsert,
+         * trim-on-write cap 500). Purely additive; prior data untouched.
+         */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `history` (" +
+                        "`songId` TEXT NOT NULL, " +
+                        "`playedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`songId`), " +
+                        "FOREIGN KEY(`songId`) REFERENCES `song_entities`(`sourceId`) " +
+                        "ON UPDATE NO ACTION ON DELETE NO ACTION)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_history_playedAt` ON `history` (`playedAt`)",
+                )
+            }
+        }
+
+        val ALL_MIGRATIONS = arrayOf<Migration>(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 
         /**
          * Single build path. Deliberately NO destructive-fallback API is

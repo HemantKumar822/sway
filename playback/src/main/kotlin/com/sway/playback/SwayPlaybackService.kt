@@ -98,6 +98,11 @@ class SwayPlaybackService : MediaLibraryService() {
     private var sessionSaver: SessionStateSaver? = null
 
     internal fun getSessionSaverForTest(): SessionStateSaver? = sessionSaver
+
+    /** History recording seam (story 8.3, FR-34) — single service-side write path. */
+    internal var historyRepoForTest: com.sway.core.data.HistoryRepository? = null
+    private var historyRecorder: HistoryRecorder? = null
+
     private var serviceScope: CoroutineScope? = null
     private var modeRestoreJob: Job? = null
 
@@ -213,6 +218,15 @@ class SwayPlaybackService : MediaLibraryService() {
         sessionStoreForTest?.let { store ->
             sessionSaver = SessionStateSaver(player, scope, store)
         }
+
+        // Story 8.3 (FR-34/AR-5 rule 7): THE single History write path lives
+        // here � service-side ticker records once a track passes 10 s
+        // cumulative played; no UI-layer observer can double-record.
+        historyRepoForTest?.let { repo ->
+            val recorder = HistoryRecorder(player, scope, repo)
+            historyRecorder = recorder
+            recorder.start()
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibraryService.MediaLibrarySession? =
@@ -226,6 +240,8 @@ class SwayPlaybackService : MediaLibraryService() {
         } catch (_: Exception) {
         }
         sessionSaver = null
+        historyRecorder?.release()
+        historyRecorder = null
         modeRestoreJob?.cancel()
         modeRestoreJob = null
         serviceScope?.cancel()
